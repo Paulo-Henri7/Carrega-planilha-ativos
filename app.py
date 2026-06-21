@@ -1,7 +1,4 @@
-import streamlit as st
-
-st.title("Teste")
-st.success("App iniciou")
+print("APP INICIOU")
 
 # from services.ativos_service import (
 #     carregar_ativos,
