@@ -1,4 +1,7 @@
-print("APP INICIOU")
+import streamlit as st
+
+st.title("Meu App Databricks")
+st.write("APP RODANDO 🚀")
 
 # from services.ativos_service import (
 #     carregar_ativos,
