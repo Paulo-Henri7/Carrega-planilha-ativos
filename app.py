@@ -1,8 +1,4 @@
 import streamlit as st
-from services.ativos_service import carregar_ativos, substituir_todos
-from services.audit_service import registrar_evento
-from utils.auth import obter_usuario
-from utils.cache import limpar_cache
 from config import COLUNAS
 
 st.set_page_config(page_title="Controle de Ativos", layout="wide")
@@ -30,17 +26,26 @@ if pagina == "Upload":
                 st.error("Colunas inválidas. Verifique se o arquivo contém: " + ", ".join(COLUNAS))
                 st.stop()
 
-            with st.spinner("Salvando..."):
-                substituir_todos(df)
-                registrar_evento(
-                    obter_usuario(),
-                    "UPLOAD_PLANILHA",
-                    "N/A",
-                    {"arquivo": arquivo.name, "linhas": len(df)},
-                )
-                limpar_cache()
+            try:
+                from services.ativos_service import substituir_todos
+                from services.audit_service import registrar_evento
+                from utils.auth import obter_usuario
+                from utils.cache import limpar_cache
 
-            st.success(f"✅ Upload realizado! {len(df)} registros salvos.")
+                with st.spinner("Salvando..."):
+                    substituir_todos(df)
+                    registrar_evento(
+                        obter_usuario(),
+                        "UPLOAD_PLANILHA",
+                        "N/A",
+                        {"arquivo": arquivo.name, "linhas": len(df)},
+                    )
+                    limpar_cache()
+
+                st.success(f"✅ Upload realizado! {len(df)} registros salvos.")
+
+            except Exception as e:
+                st.error(f"❌ Erro ao salvar no Databricks: {e}")
 
 
 # ======================
@@ -48,8 +53,14 @@ if pagina == "Upload":
 # ======================
 elif pagina == "Ativos":
 
-    with st.spinner("Carregando ativos..."):
-        df = carregar_ativos()
+    try:
+        from services.ativos_service import carregar_ativos
 
-    st.dataframe(df, use_container_width=True)
-    st.caption(f"{len(df)} ativos encontrados.")
+        with st.spinner("Carregando ativos..."):
+            df = carregar_ativos()
+
+        st.dataframe(df, use_container_width=True)
+        st.caption(f"{len(df)} ativos encontrados.")
+
+    except Exception as e:
+        st.error(f"❌ Erro ao carregar ativos: {e}")
