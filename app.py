@@ -1,5 +1,10 @@
 import streamlit as st
-from config import COLUNAS
+
+try:
+    from config import COLUNAS
+except Exception as e:
+    st.error(f"Erro ao carregar config: {e}")
+    st.stop()
 
 st.set_page_config(page_title="Controle de Ativos", layout="wide")
 st.title("📋 Controle de Ativos")
