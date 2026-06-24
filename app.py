@@ -9,7 +9,7 @@ except Exception as e:
 st.set_page_config(page_title="Controle de Ativos", layout="wide")
 st.title("📋 Controle de Ativos")
 
-pagina = st.sidebar.selectbox("Menu", ["Upload", "Ativos", "Manutenção", "Novo Ativo", "Diagnóstico"])
+pagina = st.sidebar.selectbox("Menu", ["Upload", "Ativos", "Manutenção", "Novo Ativo", "Histórico", "Diagnóstico"])
 
 
 # ======================
@@ -233,6 +233,140 @@ elif pagina == "Novo Ativo":
 
 
 # ======================
+# HISTÓRICO
+# ======================
+elif pagina == "Histórico":
+
+    st.subheader("📜 Histórico")
+
+    aba_auditoria, aba_backups = st.tabs(["Auditoria", "Backups"])
+
+    # ---------- ABA AUDITORIA ----------
+    with aba_auditoria:
+
+        st.markdown("#### Registro de Eventos")
+
+        try:
+            from db.queries import query_df
+            from config import TABELA_AUDITORIA
+
+            with st.spinner("Carregando auditoria..."):
+                df_audit = query_df(
+                    f"SELECT * FROM {TABELA_AUDITORIA} ORDER BY data_hora DESC"
+                )
+
+            if df_audit.empty:
+                st.info("Nenhum evento registrado ainda.")
+            else:
+                # Filtros
+                col1, col2 = st.columns(2)
+                with col1:
+                    acoes = ["Todas"] + sorted(df_audit["acao"].dropna().unique().tolist())
+                    filtro_acao = st.selectbox("Filtrar por ação", acoes)
+                with col2:
+                    usuarios = ["Todos"] + sorted(df_audit["usuario"].dropna().unique().tolist())
+                    filtro_usuario = st.selectbox("Filtrar por usuário", usuarios)
+
+                df_filtrado = df_audit.copy()
+                if filtro_acao != "Todas":
+                    df_filtrado = df_filtrado[df_filtrado["acao"] == filtro_acao]
+                if filtro_usuario != "Todos":
+                    df_filtrado = df_filtrado[df_filtrado["usuario"] == filtro_usuario]
+
+                st.dataframe(df_filtrado, use_container_width=True)
+                st.caption(f"{len(df_filtrado)} eventos encontrados.")
+
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar auditoria: {e}")
+
+    # ---------- ABA BACKUPS ----------
+    with aba_backups:
+
+        st.markdown("#### Snapshots Disponíveis")
+
+        try:
+            from db.queries import query_df, execute
+            from db.connection import get_connection
+            from config import TABELA_BACKUP, TABELA, COLUNAS
+            from utils.cache import limpar_cache
+
+            with st.spinner("Carregando backups..."):
+                df_bkp = query_df(
+                    f"""
+                    SELECT DISTINCT backup_em, modificacao_numero
+                    FROM {TABELA_BACKUP}
+                    ORDER BY backup_em DESC
+                    """
+                )
+
+            if df_bkp.empty:
+                st.info("Nenhum backup gerado ainda. Os backups são criados automaticamente a cada 10 modificações.")
+            else:
+                st.dataframe(df_bkp, use_container_width=True)
+                st.caption(f"{len(df_bkp)} snapshot(s) disponível(is).")
+
+                st.divider()
+                st.markdown("#### Restaurar Snapshot")
+                st.warning(
+                    "⚠️ A restauração SUBSTITUI todos os ativos atuais pelo snapshot selecionado. "
+                    "O estado atual será perdido (mas continuará recuperável pelo histórico Delta)."
+                )
+
+                opcoes_snapshot = df_bkp["backup_em"].astype(str).tolist()
+                snapshot_selecionado = st.selectbox("Selecione o snapshot", opcoes_snapshot)
+
+                confirmar_restore = st.checkbox("Confirmo que desejo restaurar este snapshot")
+
+                if confirmar_restore and st.button("Restaurar", type="primary"):
+                    try:
+                        from services.audit_service import registrar_evento
+                        from utils.auth import obter_usuario
+
+                        # Busca os registros do snapshot
+                        df_restore = query_df(
+                            f"""
+                            SELECT {', '.join(COLUNAS)}
+                            FROM {TABELA_BACKUP}
+                            WHERE CAST(backup_em AS STRING) = :snap
+                            """,
+                            {"snap": snapshot_selecionado},
+                        )
+
+                        if df_restore.empty:
+                            st.error("Nenhum registro encontrado neste snapshot.")
+                        else:
+                            # Trunca e reinseere
+                            execute(f"TRUNCATE TABLE {TABELA}")
+                            registros = df_restore[COLUNAS].astype(str).to_dict("records")
+
+                            with get_connection() as conn:
+                                with conn.cursor() as cursor:
+                                    cursor.executemany(
+                                        f"""
+                                        INSERT INTO {TABELA}
+                                        (patrimonio, modelo, departamento, responsavel, serial_number)
+                                        VALUES (:patrimonio, :modelo, :departamento, :responsavel, :serial_number)
+                                        """,
+                                        registros,
+                                    )
+
+                            registrar_evento(
+                                obter_usuario(),
+                                "RESTAURACAO_BACKUP",
+                                "N/A",
+                                f"Snapshot restaurado: {snapshot_selecionado} ({len(df_restore)} registros)",
+                            )
+                            limpar_cache()
+                            st.success(f"✅ Snapshot de {snapshot_selecionado} restaurado com sucesso! {len(df_restore)} registros reinseridos.")
+
+                    except Exception as e:
+                        st.error(f"❌ Erro ao restaurar: {e}")
+
+        except Exception as e:
+            st.error(f"❌ Erro ao carregar backups: {e}")
+
+
+# ======================
 # DIAGNÓSTICO
 # ======================
 elif pagina == "Diagnóstico":
@@ -242,7 +376,6 @@ elif pagina == "Diagnóstico":
 
     from config import TABELA, TABELA_AUDITORIA, TABELA_BACKUP
 
-    # --- Teste 1: Conexão ---
     st.markdown("#### 1. Conexão com Databricks")
     try:
         from db.connection import get_connection
@@ -252,7 +385,6 @@ elif pagina == "Diagnóstico":
         st.error(f"❌ Falha na conexão: {e}")
         st.stop()
 
-    # --- Teste 2: Leitura das tabelas ---
     st.markdown("#### 2. Leitura das tabelas")
     from db.queries import query_df
 
@@ -263,12 +395,11 @@ elif pagina == "Diagnóstico":
         except Exception as e:
             st.error(f"❌ {nome} (`{tabela}`): {e}")
 
-    # --- Teste 3: Colunas da tabela de auditoria ---
     st.markdown("#### 3. Colunas da tabela de auditoria")
     try:
         df_audit = query_df(f"SELECT * FROM {TABELA_AUDITORIA} LIMIT 0")
         st.info(f"Colunas encontradas: `{list(df_audit.columns)}`")
-        esperadas = ["data_hora", "usuario", "acao", "patrimonio", "detalhes", "transaction_id"]
+        esperadas = ["data_hora", "usuario", "acao", "patrimonio", "detalhes"]
         faltando = [c for c in esperadas if c not in df_audit.columns]
         if faltando:
             st.warning(f"⚠️ Colunas ausentes na auditoria: {faltando}")
@@ -277,7 +408,6 @@ elif pagina == "Diagnóstico":
     except Exception as e:
         st.error(f"❌ Erro ao inspecionar auditoria: {e}")
 
-    # --- Teste 4: Colunas da tabela de backup ---
     st.markdown("#### 4. Colunas da tabela de backup")
     try:
         df_bkp = query_df(f"SELECT * FROM {TABELA_BACKUP} LIMIT 0")
@@ -291,7 +421,6 @@ elif pagina == "Diagnóstico":
     except Exception as e:
         st.error(f"❌ Erro ao inspecionar backup: {e}")
 
-    # --- Teste 5: INSERT de teste na auditoria ---
     st.markdown("#### 5. Teste de escrita na auditoria")
     if st.button("Executar INSERT de teste na auditoria"):
         try:
