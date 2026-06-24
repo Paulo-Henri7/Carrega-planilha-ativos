@@ -19,7 +19,7 @@ if pagina == "Upload":
 
     st.subheader("Upload de Planilha")
     st.caption(
-        "O upload SUBSTITUI todos os ativos atuais pela planilha enviada. "
+        "⚠️ O upload SUBSTITUI todos os ativos atuais pela planilha enviada. "
         "A versão anterior continua recuperável pelo histórico da tabela Delta."
     )
 
@@ -47,6 +47,8 @@ if pagina == "Upload":
                 from utils.cache import limpar_cache
 
                 with st.spinner("Salvando..."):
+                    from services.backup_service import gerar_backup_se_necessario
+
                     substituir_todos(df)
                     registrar_evento(
                         obter_usuario(),
@@ -54,12 +56,16 @@ if pagina == "Upload":
                         "N/A",
                         {"arquivo": arquivo.name, "linhas": len(df)},
                     )
+                    backup_gerado = gerar_backup_se_necessario("UPLOAD_PLANILHA")
                     limpar_cache()
 
-                st.success(f"Upload realizado! {len(df)} registros salvos.")
+                msg = f"✅ Upload realizado! {len(df)} registros salvos."
+                if backup_gerado:
+                    msg += " 💾 Backup gerado automaticamente."
+                st.success(msg)
 
             except Exception as e:
-                st.error(f"Erro ao salvar no Databricks: {e}")
+                st.error(f"❌ Erro ao salvar no Databricks: {e}")
 
 
 # ======================
@@ -107,7 +113,7 @@ elif pagina == "Ativos":
         st.caption(f"{len(df_filtrado)} ativos encontrados.")
 
     except Exception as e:
-        st.error(f"Erro ao carregar ativos: {e}")
+        st.error(f"❌ Erro ao carregar ativos: {e}")
 
 
 # ======================
@@ -120,6 +126,7 @@ elif pagina == "Manutenção":
     try:
         from services.ativos_service import carregar_ativos, atualizar_ativo, excluir_ativo
         from services.audit_service import registrar_evento
+        from services.backup_service import gerar_backup_se_necessario
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
 
@@ -148,8 +155,12 @@ elif pagina == "Manutenção":
             )
             atualizar_ativo(patrimonio, novo_modelo, novo_departamento, novo_responsavel)
             registrar_evento(obter_usuario(), "EDICAO", patrimonio, detalhes)
+            backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
-            st.success("Alterações salvas com sucesso!")
+            msg = "✅ Alterações salvas com sucesso!"
+            if backup_gerado:
+                msg += " 💾 Backup gerado automaticamente."
+            st.success(msg)
             st.rerun()
 
         st.divider()
@@ -163,12 +174,16 @@ elif pagina == "Manutenção":
                 patrimonio,
                 f"Modelo={ativo['modelo']}, Responsavel={ativo['responsavel']}",
             )
+            backup_gerado = gerar_backup_se_necessario("EXCLUSAO")
             limpar_cache()
-            st.success("Ativo removido com sucesso!")
+            msg = "✅ Ativo removido com sucesso!"
+            if backup_gerado:
+                msg += " 💾 Backup gerado automaticamente."
+            st.success(msg)
             st.rerun()
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"❌ Erro: {e}")
 
 
 # ======================
@@ -179,12 +194,13 @@ elif pagina == "Novo Ativo":
     st.subheader("Cadastro de Novo Ativo")
 
     if st.session_state.get("cadastro_ok"):
-        st.success("Ativo cadastrado com sucesso!")
+        st.success("✅ Ativo cadastrado com sucesso!")
         del st.session_state["cadastro_ok"]
 
     try:
         from services.ativos_service import patrimonio_existe, inserir_ativo
         from services.audit_service import registrar_evento
+        from services.backup_service import gerar_backup_se_necessario
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
 
@@ -198,7 +214,7 @@ elif pagina == "Novo Ativo":
             if not all([novo_patrimonio, novo_modelo, novo_departamento, novo_responsavel]):
                 st.warning("Preencha todos os campos obrigatórios.")
             elif patrimonio_existe(novo_patrimonio):
-                st.error("Já existe um ativo com este patrimônio.")
+                st.error("❌ Já existe um ativo com este patrimônio.")
             else:
                 inserir_ativo(novo_patrimonio, novo_modelo, novo_departamento, novo_responsavel, novo_serial)
                 registrar_evento(
@@ -207,9 +223,10 @@ elif pagina == "Novo Ativo":
                     novo_patrimonio,
                     f"Modelo={novo_modelo}, Departamento={novo_departamento}",
                 )
+                gerar_backup_se_necessario("CADASTRO")
                 limpar_cache()
                 st.session_state["cadastro_ok"] = True
                 st.rerun()
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"❌ Erro: {e}")
