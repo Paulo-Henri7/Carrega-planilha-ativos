@@ -3,3 +3,4 @@ pandas
 databricks-sdk
 databricks-sql-connector
 openpyxl
+plotly

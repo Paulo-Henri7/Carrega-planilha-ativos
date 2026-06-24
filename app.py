@@ -9,7 +9,7 @@ except Exception as e:
 st.set_page_config(page_title="Controle de Ativos", layout="wide")
 st.title("📋 Controle de Ativos")
 
-pagina = st.sidebar.selectbox("Menu", ["Upload", "Ativos", "Manutenção", "Novo Ativo", "Histórico", "Diagnóstico"])
+pagina = st.sidebar.selectbox("Menu", ["Upload", "Ativos", "Manutenção", "Novo Ativo", "Edição em Lote", "Relatório", "Histórico", "Diagnóstico"])
 
 
 # ======================
@@ -92,16 +92,22 @@ elif pagina == "Ativos":
 
         st.divider()
 
-        # Filtros dinâmicos
-        colunas_filtro = st.multiselect("Filtrar por coluna", df.columns.tolist())
+        # Filtros OR — cada coluna aceita múltiplos valores (OR dentro da coluna)
+        # Entre colunas diferentes o filtro é AND
+        st.markdown("**Filtros** — dentro de cada coluna os valores selecionados usam OR entre si")
+        colunas_filtro = st.multiselect("Selecione as colunas para filtrar", df.columns.tolist())
         df_filtrado = df.copy()
 
         for coluna in colunas_filtro:
-            opcoes = ["Todos"] + sorted(df[coluna].dropna().astype(str).unique().tolist())
+            opcoes = sorted(df[coluna].dropna().astype(str).unique().tolist())
             with st.sidebar:
-                valor = st.selectbox(f"Filtro: {coluna}", opcoes, key=f"filtro_{coluna}")
-            if valor != "Todos":
-                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str) == valor]
+                valores = st.multiselect(
+                    f"Filtro: {coluna}",
+                    opcoes,
+                    key=f"filtro_{coluna}",
+                )
+            if valores:
+                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(valores)]
 
         colunas_visiveis = st.multiselect(
             "Colunas para exibir",
@@ -230,6 +236,197 @@ elif pagina == "Novo Ativo":
 
     except Exception as e:
         st.error(f"Erro: {e}")
+
+
+# ======================
+# EDIÇÃO EM LOTE
+# ======================
+elif pagina == "Edição em Lote":
+
+    st.subheader("✏️ Edição em Lote")
+    st.caption("Selecione os patrimônios e altere responsável e/ou departamento de uma vez.")
+
+    try:
+        from services.ativos_service import carregar_ativos, atualizar_ativo
+        from services.audit_service import registrar_evento
+        from services.backup_service import gerar_backup_se_necessario
+        from utils.auth import obter_usuario
+        from utils.cache import limpar_cache
+
+        df = carregar_ativos()
+
+        if df.empty:
+            st.warning("Nenhum ativo cadastrado.")
+            st.stop()
+
+        # Filtro opcional para facilitar seleção
+        with st.expander("Filtrar lista por departamento ou responsável"):
+            col1, col2 = st.columns(2)
+            with col1:
+                deps = ["Todos"] + sorted(df["departamento"].dropna().astype(str).unique().tolist())
+                filtro_dep = st.selectbox("Departamento", deps, key="lote_dep")
+            with col2:
+                resps = ["Todos"] + sorted(df["responsavel"].dropna().astype(str).unique().tolist())
+                filtro_resp = st.selectbox("Responsável", resps, key="lote_resp")
+
+        df_filtrado = df.copy()
+        if filtro_dep != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["departamento"].astype(str) == filtro_dep]
+        if filtro_resp != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["responsavel"].astype(str) == filtro_resp]
+
+        patrimonios_disponiveis = sorted(df_filtrado["patrimonio"].astype(str).tolist())
+        patrimonios_selecionados = st.multiselect(
+            "Selecione os patrimônios para editar",
+            patrimonios_disponiveis,
+        )
+
+        if patrimonios_selecionados:
+            st.dataframe(
+                df[df["patrimonio"].astype(str).isin(patrimonios_selecionados)],
+                use_container_width=True,
+            )
+
+            st.divider()
+            st.markdown("**Novos valores** — deixe em branco para não alterar o campo")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                novo_responsavel = st.text_input("Novo Responsável")
+            with col2:
+                novo_departamento = st.text_input("Novo Departamento")
+
+            if not novo_responsavel and not novo_departamento:
+                st.info("Preencha ao menos um dos campos acima.")
+            elif st.button("Aplicar em Lote", type="primary"):
+                erros = []
+                for pat in patrimonios_selecionados:
+                    try:
+                        ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
+                        resp_final = novo_responsavel if novo_responsavel else str(ativo["responsavel"])
+                        dep_final = novo_departamento if novo_departamento else str(ativo["departamento"])
+                        mod_final = str(ativo["modelo"])
+
+                        atualizar_ativo(pat, mod_final, dep_final, resp_final)
+
+                        detalhes = []
+                        if novo_responsavel:
+                            detalhes.append(f"Responsavel: {ativo['responsavel']} --> {resp_final}")
+                        if novo_departamento:
+                            detalhes.append(f"Departamento: {ativo['departamento']} --> {dep_final}")
+
+                        registrar_evento(
+                            obter_usuario(),
+                            "EDICAO_LOTE",
+                            pat,
+                            " | ".join(detalhes),
+                        )
+                    except Exception as e:
+                        erros.append(f"{pat}: {e}")
+
+                gerar_backup_se_necessario("EDICAO")
+                limpar_cache()
+
+                if erros:
+                    st.warning(f"Concluído com erros: {erros}")
+                else:
+                    st.success(f"✅ {len(patrimonios_selecionados)} ativos atualizados com sucesso!")
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"❌ Erro: {e}")
+
+
+# ======================
+# RELATÓRIO
+# ======================
+elif pagina == "Relatório":
+
+    st.subheader("📊 Relatório de Ativos")
+
+    try:
+        import plotly.express as px
+        from services.ativos_service import carregar_ativos
+
+        with st.spinner("Carregando dados..."):
+            df = carregar_ativos()
+
+        if df.empty:
+            st.warning("Nenhum ativo cadastrado.")
+            st.stop()
+
+        # --- Métricas ---
+        st.markdown("#### Resumo Geral")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total de Ativos", len(df))
+        col2.metric("Departamentos", df["departamento"].nunique())
+        col3.metric("Responsáveis", df["responsavel"].nunique())
+        col4.metric("Modelos distintos", df["modelo"].nunique())
+
+        campos_vazios = df[COLUNAS].isnull().sum().sum() + (df[COLUNAS] == "").sum().sum()
+        if campos_vazios > 0:
+            st.warning(f"⚠️ {campos_vazios} campo(s) vazio(s) encontrado(s) na base.")
+
+        st.divider()
+
+        # --- Gráficos ---
+        col_esq, col_dir = st.columns(2)
+
+        with col_esq:
+            st.markdown("#### Ativos por Departamento")
+            dep_count = (
+                df["departamento"].astype(str)
+                .value_counts()
+                .reset_index()
+                .rename(columns={"index": "departamento", "count": "total"})
+            )
+            fig_bar = px.bar(
+                dep_count,
+                x="departamento",
+                y="total",
+                labels={"departamento": "Departamento", "total": "Quantidade"},
+                color="departamento",
+                color_discrete_sequence=px.colors.qualitative.Set2,
+            )
+            fig_bar.update_layout(showlegend=False, xaxis_tickangle=-30)
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        with col_dir:
+            st.markdown("#### Distribuição por Departamento")
+            fig_pizza = px.pie(
+                dep_count,
+                names="departamento",
+                values="total",
+                color_discrete_sequence=px.colors.qualitative.Set2,
+            )
+            fig_pizza.update_traces(textposition="inside", textinfo="percent+label")
+            st.plotly_chart(fig_pizza, use_container_width=True)
+
+        st.divider()
+
+        # --- Top responsáveis ---
+        st.markdown("#### Top 10 Responsáveis com mais ativos")
+        resp_count = (
+            df["responsavel"].astype(str)
+            .value_counts()
+            .head(10)
+            .reset_index()
+            .rename(columns={"index": "responsavel", "count": "total"})
+        )
+        fig_resp = px.bar(
+            resp_count,
+            x="total",
+            y="responsavel",
+            orientation="h",
+            labels={"responsavel": "Responsável", "total": "Quantidade"},
+            color="total",
+            color_continuous_scale="Blues",
+        )
+        fig_resp.update_layout(yaxis={"categoryorder": "total ascending"}, showlegend=False)
+        st.plotly_chart(fig_resp, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"❌ Erro ao gerar relatório: {e}")
 
 
 # ======================
