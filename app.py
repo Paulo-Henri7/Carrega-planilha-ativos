@@ -296,19 +296,17 @@ elif pagina == "Diagnóstico":
     if st.button("Executar INSERT de teste na auditoria"):
         try:
             from db.queries import execute
-            import uuid
             execute(
                 f"""
                 INSERT INTO {TABELA_AUDITORIA}
-                (data_hora, usuario, acao, patrimonio, detalhes, transaction_id)
-                VALUES (current_timestamp(), :usuario, :acao, :patrimonio, :detalhes, :tx)
+                (data_hora, usuario, acao, patrimonio, detalhes)
+                VALUES (current_timestamp(), :usuario, :acao, :patrimonio, :detalhes)
                 """,
                 {
                     "usuario": "diagnostico",
                     "acao": "TESTE",
                     "patrimonio": "N/A",
                     "detalhes": "Teste de escrita via página de diagnóstico",
-                    "tx": str(uuid.uuid4()),
                 },
             )
             st.success("✅ INSERT na auditoria executado com sucesso!")
