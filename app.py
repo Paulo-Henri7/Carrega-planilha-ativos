@@ -9,18 +9,6 @@ except Exception as e:
 st.set_page_config(page_title="Controle de Ativos", layout="wide")
 st.title("📋 Controle de Ativos")
 
-st.markdown(
-    """
-    <style>
-    [data-testid="stSidebar"] .stSelectbox input {
-        pointer-events: none;
-        caret-color: transparent;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 pagina = st.sidebar.selectbox("Menu", ["Upload", "Ativos", "Manutenção", "Novo Ativo"])
 
 
