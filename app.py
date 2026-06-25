@@ -102,8 +102,27 @@ elif pagina == "Ativos":
 
         st.divider()
 
-        # Filtros OR — cada coluna aceita múltiplos valores (OR dentro da coluna)
-        # Entre colunas diferentes o filtro é AND
+        # Busca rápida
+        busca = st.text_input(
+            "🔍 Busca rápida",
+            placeholder="Digite patrimônio, serial number, responsável ou modelo...",
+        )
+        if busca:
+            termo = busca.strip().lower()
+            mascara = (
+                df["patrimonio"].astype(str).str.lower().str.contains(termo, na=False)
+                | df["serial_number"].astype(str).str.lower().str.contains(termo, na=False)
+                | df["responsavel"].astype(str).str.lower().str.contains(termo, na=False)
+                | df["modelo"].astype(str).str.lower().str.contains(termo, na=False)
+            )
+            df = df[mascara]
+            st.caption(f"{len(df)} resultado(s) para \"{busca}\".")
+            st.dataframe(df, use_container_width=True)
+            st.stop()
+
+        st.divider()
+
+        # Filtros avançados — OR dentro da coluna, AND entre colunas
         st.markdown("**Filtros** — dentro de cada coluna os valores selecionados usam OR entre si")
         colunas_filtro = st.multiselect("Selecione as colunas para filtrar", df.columns.tolist())
         df_filtrado = df.copy()
@@ -424,6 +443,20 @@ elif pagina == "Relatório":
         campos_vazios = df[COLUNAS].isnull().sum().sum() + (df[COLUNAS] == "").sum().sum()
         if campos_vazios > 0:
             st.warning(f"⚠️ {campos_vazios} campo(s) vazio(s) encontrado(s) na base.")
+            df_incompletos = df[
+                df[COLUNAS].isnull().any(axis=1)
+                | (df[COLUNAS] == "").any(axis=1)
+            ].copy()
+            df_incompletos["campos_faltando"] = df_incompletos[COLUNAS].apply(
+                lambda row: ", ".join(
+                    col for col in COLUNAS
+                    if row[col] is None or str(row[col]).strip() == "" or str(row[col]) == "nan"
+                ),
+                axis=1,
+            )
+            with st.expander(f"Ver {len(df_incompletos)} ativo(s) com dados incompletos"):
+                st.dataframe(df_incompletos, use_container_width=True)
+                st.caption("Acesse a página Manutenção ou Edição em Lote para corrigir esses registros.")
 
         st.divider()
 
@@ -531,11 +564,29 @@ elif pagina == "Histórico":
                     usuarios = ["Todos"] + sorted(df_audit["usuario"].dropna().unique().tolist())
                     filtro_usuario = st.selectbox("Filtrar por usuário", usuarios)
 
+                # Filtro de data
+                import pandas as pd
+                df_audit["data_hora"] = pd.to_datetime(df_audit["data_hora"], utc=True)
+                data_min = df_audit["data_hora"].min().date()
+                data_max = df_audit["data_hora"].max().date()
+
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    data_inicio = st.date_input("De", value=data_min, min_value=data_min, max_value=data_max)
+                with col_d2:
+                    data_fim = st.date_input("Até", value=data_max, min_value=data_min, max_value=data_max)
+
                 df_filtrado = df_audit.copy()
                 if filtro_acao != "Todas":
                     df_filtrado = df_filtrado[df_filtrado["acao"] == filtro_acao]
                 if filtro_usuario != "Todos":
                     df_filtrado = df_filtrado[df_filtrado["usuario"] == filtro_usuario]
+
+                import pandas as pd
+                df_filtrado = df_filtrado[
+                    (df_filtrado["data_hora"].dt.date >= data_inicio)
+                    & (df_filtrado["data_hora"].dt.date <= data_fim)
+                ]
 
                 st.dataframe(df_filtrado, use_container_width=True)
                 st.caption(f"{len(df_filtrado)} eventos encontrados.")
