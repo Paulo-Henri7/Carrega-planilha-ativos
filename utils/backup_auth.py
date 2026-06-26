@@ -13,7 +13,7 @@ ADMINS: list[str] = (
     else [
         # Fallback — edite aqui se não usar variável de ambiente
         # Adicionei aqui o email com permissão para realizar backup
-        "admin@empresa.com",
+        "mikesulivar@gmail.com",
     ]
 )
 
