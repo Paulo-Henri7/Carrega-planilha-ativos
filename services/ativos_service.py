@@ -1,8 +1,10 @@
 import pandas as pd
+import streamlit as st
 from db.queries import query_df, execute
 from db.connection import get_connection
 from config import TABELA, COLUNAS
 
+@st.cache_data(ttl=300)  # 5 min — rede de segurança; o cache já é invalidado após toda escrita
 def carregar_ativos():
     return query_df(f"SELECT * FROM {TABELA}")
 
