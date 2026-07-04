@@ -162,6 +162,7 @@ elif pagina == "Manutenção":
         from services.ativos_service import carregar_ativos, atualizar_ativo, excluir_ativo
         from services.audit_service import registrar_evento
         from services.backup_service import gerar_backup_se_necessario
+        from services.catalogo_service import tipos_disponiveis, modelos_por_tipo, tipo_do_modelo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
 
@@ -178,7 +179,25 @@ elif pagina == "Manutenção":
 
         ativo = df[df["patrimonio"].astype(str) == patrimonio].iloc[0]
 
-        novo_modelo = st.text_input("Modelo", value=str(ativo["modelo"]))
+        _tipos = tipos_disponiveis()
+        _tipo_atual = tipo_do_modelo(str(ativo["modelo"]))
+        _index_tipo = _tipos.index(_tipo_atual) if _tipo_atual in _tipos else 0
+
+        if not _tipo_atual:
+            st.caption(f"⚠️ Modelo atual (`{ativo['modelo']}`) não está no catálogo.")
+
+        tipo_equipamento = st.selectbox("Tipo de Equipamento", _tipos, index=_index_tipo)
+        opcoes_modelo = modelos_por_tipo(tipo_equipamento)
+
+        if str(ativo["modelo"]) in opcoes_modelo:
+            _index_modelo = opcoes_modelo.index(str(ativo["modelo"]))
+        elif tipo_equipamento == _tipo_atual:
+            opcoes_modelo = [str(ativo["modelo"])] + opcoes_modelo
+            _index_modelo = 0
+        else:
+            _index_modelo = 0
+
+        novo_modelo = st.selectbox("Modelo", opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
         novo_departamento = st.text_input("Departamento", value=str(ativo["departamento"]))
         novo_responsavel = st.text_input("Responsável", value=str(ativo["responsavel"]))
 
@@ -236,11 +255,18 @@ elif pagina == "Novo Ativo":
         from services.ativos_service import patrimonio_existe, inserir_ativo
         from services.audit_service import registrar_evento
         from services.backup_service import gerar_backup_se_necessario
+        from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
 
         novo_patrimonio = st.text_input("Patrimônio")
-        novo_modelo = st.text_input("Modelo")
+
+        tipo_equipamento = st.selectbox("Tipo de Equipamento", tipos_disponiveis())
+        opcoes_modelo = modelos_por_tipo(tipo_equipamento) if tipo_equipamento else []
+        if tipo_equipamento and not opcoes_modelo:
+            st.warning("Nenhum modelo cadastrado no catálogo para este tipo.")
+        novo_modelo = st.selectbox("Modelo", opcoes_modelo) if opcoes_modelo else None
+
         novo_departamento = st.text_input("Departamento")
         novo_responsavel = st.text_input("Responsável")
         novo_serial = st.text_input("Serial Number")
@@ -273,12 +299,13 @@ elif pagina == "Novo Ativo":
 elif pagina == "Edição em Lote":
 
     st.subheader("✏️ Edição em Lote")
-    st.caption("Selecione os patrimônios e edite responsável e/ou departamento individualmente em cada card.")
+    st.caption("Selecione os patrimônios e edite responsável, departamento e/ou modelo individualmente em cada card.")
 
     try:
         from services.ativos_service import carregar_ativos, atualizar_ativo
         from services.audit_service import registrar_evento
         from services.backup_service import gerar_backup_se_necessario
+        from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
 
@@ -318,7 +345,12 @@ elif pagina == "Edição em Lote":
 
             st.divider()
             st.markdown("**Edição individual** — preencha os campos que deseja alterar em cada card")
-            st.caption("Campos deixados em branco preservam o valor atual do patrimônio. Novos responsáveis e departamentos podem ser digitados livremente.")
+            st.caption("Campos deixados em branco (ou em '(não alterar)') preservam o valor atual do patrimônio.")
+
+            # Lista plana de todos os modelos do catálogo, para o select de modelo
+            _todos_modelos = [
+                m for tipo in tipos_disponiveis() for m in modelos_por_tipo(tipo)
+            ]
 
             # Um card por patrimônio selecionado
             novos_valores = {}
@@ -328,7 +360,7 @@ elif pagina == "Edição em Lote":
                 with st.container(border=True):
                     st.markdown(f"**{pat}** — modelo: `{ativo['modelo']}` · resp. atual: `{ativo['responsavel']}` · dep. atual: `{ativo['departamento']}`")
 
-                    col1, col2 = st.columns(2)
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         novo_resp = st.text_input(
                             "Novo Responsável",
@@ -345,17 +377,25 @@ elif pagina == "Edição em Lote":
                         )
                         if not novo_dep:
                             st.caption("Caso valor não seja alterado, permanecerá o mesmo")
+                    with col3:
+                        _opcoes_modelo_lote = ["(não alterar)"] + _todos_modelos
+                        novo_modelo_lote = st.selectbox(
+                            "Novo Modelo",
+                            _opcoes_modelo_lote,
+                            key=f"modelo_{pat}",
+                        )
 
                     novos_valores[pat] = {
                         "resp": novo_resp.strip() if novo_resp.strip() else None,
                         "dep":  novo_dep.strip()  if novo_dep.strip()  else None,
+                        "mod":  novo_modelo_lote if novo_modelo_lote != "(não alterar)" else None,
                     }
 
             st.divider()
 
             # Verifica se ao menos um campo foi alterado em algum card
             tem_alteracao = any(
-                v["resp"] or v["dep"] for v in novos_valores.values()
+                v["resp"] or v["dep"] or v["mod"] for v in novos_valores.values()
             )
 
             if not tem_alteracao:
@@ -363,7 +403,7 @@ elif pagina == "Edição em Lote":
             else:
                 # Resumo do que será salvo
                 alteracoes_resumo = [
-                    pat for pat, v in novos_valores.items() if v["resp"] or v["dep"]
+                    pat for pat, v in novos_valores.items() if v["resp"] or v["dep"] or v["mod"]
                 ]
                 st.success(f"{len(alteracoes_resumo)} patrimônio(s) com alterações pendentes: {', '.join(alteracoes_resumo)}")
 
@@ -373,14 +413,14 @@ elif pagina == "Edição em Lote":
 
                     for pat, vals in novos_valores.items():
                         # Patrimônios sem nenhum campo alterado são ignorados
-                        if not vals["resp"] and not vals["dep"]:
+                        if not vals["resp"] and not vals["dep"] and not vals["mod"]:
                             continue
 
                         try:
                             ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
                             resp_final = vals["resp"] if vals["resp"] else str(ativo["responsavel"])
                             dep_final  = vals["dep"]  if vals["dep"]  else str(ativo["departamento"])
-                            mod_final  = str(ativo["modelo"])
+                            mod_final  = vals["mod"]  if vals["mod"]  else str(ativo["modelo"])
 
                             atualizar_ativo(pat, mod_final, dep_final, resp_final)
 
@@ -389,6 +429,8 @@ elif pagina == "Edição em Lote":
                                 detalhes.append(f"Responsavel: {ativo['responsavel']} --> {resp_final}")
                             if vals["dep"]:
                                 detalhes.append(f"Departamento: {ativo['departamento']} --> {dep_final}")
+                            if vals["mod"]:
+                                detalhes.append(f"Modelo: {ativo['modelo']} --> {mod_final}")
 
                             registrar_evento(
                                 obter_usuario(),
