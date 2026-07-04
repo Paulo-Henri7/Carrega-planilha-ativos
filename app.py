@@ -299,13 +299,12 @@ elif pagina == "Novo Ativo":
 elif pagina == "Edição em Lote":
 
     st.subheader("✏️ Edição em Lote")
-    st.caption("Selecione os patrimônios e edite responsável, departamento e/ou modelo individualmente em cada card.")
+    st.caption("Selecione os patrimônios e edite responsável e/ou departamento individualmente em cada card.")
 
     try:
         from services.ativos_service import carregar_ativos, atualizar_ativo
         from services.audit_service import registrar_evento
         from services.backup_service import gerar_backup_se_necessario
-        from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
 
@@ -345,12 +344,7 @@ elif pagina == "Edição em Lote":
 
             st.divider()
             st.markdown("**Edição individual** — preencha os campos que deseja alterar em cada card")
-            st.caption("Campos deixados em branco (ou em '(não alterar)') preservam o valor atual do patrimônio.")
-
-            # Lista plana de todos os modelos do catálogo, para o select de modelo
-            _todos_modelos = [
-                m for tipo in tipos_disponiveis() for m in modelos_por_tipo(tipo)
-            ]
+            st.caption("Campos deixados em branco preservam o valor atual do patrimônio. Novos responsáveis e departamentos podem ser digitados livremente.")
 
             # Um card por patrimônio selecionado
             novos_valores = {}
@@ -360,7 +354,7 @@ elif pagina == "Edição em Lote":
                 with st.container(border=True):
                     st.markdown(f"**{pat}** — modelo: `{ativo['modelo']}` · resp. atual: `{ativo['responsavel']}` · dep. atual: `{ativo['departamento']}`")
 
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     with col1:
                         novo_resp = st.text_input(
                             "Novo Responsável",
@@ -377,25 +371,17 @@ elif pagina == "Edição em Lote":
                         )
                         if not novo_dep:
                             st.caption("Caso valor não seja alterado, permanecerá o mesmo")
-                    with col3:
-                        _opcoes_modelo_lote = ["(não alterar)"] + _todos_modelos
-                        novo_modelo_lote = st.selectbox(
-                            "Novo Modelo",
-                            _opcoes_modelo_lote,
-                            key=f"modelo_{pat}",
-                        )
 
                     novos_valores[pat] = {
                         "resp": novo_resp.strip() if novo_resp.strip() else None,
                         "dep":  novo_dep.strip()  if novo_dep.strip()  else None,
-                        "mod":  novo_modelo_lote if novo_modelo_lote != "(não alterar)" else None,
                     }
 
             st.divider()
 
             # Verifica se ao menos um campo foi alterado em algum card
             tem_alteracao = any(
-                v["resp"] or v["dep"] or v["mod"] for v in novos_valores.values()
+                v["resp"] or v["dep"] for v in novos_valores.values()
             )
 
             if not tem_alteracao:
@@ -403,7 +389,7 @@ elif pagina == "Edição em Lote":
             else:
                 # Resumo do que será salvo
                 alteracoes_resumo = [
-                    pat for pat, v in novos_valores.items() if v["resp"] or v["dep"] or v["mod"]
+                    pat for pat, v in novos_valores.items() if v["resp"] or v["dep"]
                 ]
                 st.success(f"{len(alteracoes_resumo)} patrimônio(s) com alterações pendentes: {', '.join(alteracoes_resumo)}")
 
@@ -413,14 +399,14 @@ elif pagina == "Edição em Lote":
 
                     for pat, vals in novos_valores.items():
                         # Patrimônios sem nenhum campo alterado são ignorados
-                        if not vals["resp"] and not vals["dep"] and not vals["mod"]:
+                        if not vals["resp"] and not vals["dep"]:
                             continue
 
                         try:
                             ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
                             resp_final = vals["resp"] if vals["resp"] else str(ativo["responsavel"])
                             dep_final  = vals["dep"]  if vals["dep"]  else str(ativo["departamento"])
-                            mod_final  = vals["mod"]  if vals["mod"]  else str(ativo["modelo"])
+                            mod_final  = str(ativo["modelo"])
 
                             atualizar_ativo(pat, mod_final, dep_final, resp_final)
 
@@ -429,8 +415,6 @@ elif pagina == "Edição em Lote":
                                 detalhes.append(f"Responsavel: {ativo['responsavel']} --> {resp_final}")
                             if vals["dep"]:
                                 detalhes.append(f"Departamento: {ativo['departamento']} --> {dep_final}")
-                            if vals["mod"]:
-                                detalhes.append(f"Modelo: {ativo['modelo']} --> {mod_final}")
 
                             registrar_evento(
                                 obter_usuario(),
