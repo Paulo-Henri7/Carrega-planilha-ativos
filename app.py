@@ -72,6 +72,10 @@ if pagina == "Upload":
                     backup_gerado = gerar_backup_se_necessario("UPLOAD_PLANILHA")
                     limpar_cache()
 
+                logger.info(
+                    "Upload de planilha concluído",
+                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "UPLOAD_PLANILHA"},
+                )
                 msg = f"Upload realizado! {len(df)} registros salvos."
                 if backup_gerado:
                     msg += "Backup gerado automaticamente."
@@ -224,6 +228,10 @@ elif pagina == "Manutenção":
             registrar_evento(obter_usuario(), "EDICAO", patrimonio, detalhes)
             backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
+            logger.info(
+                "Ativo atualizado com sucesso",
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO", "patrimonio": patrimonio},
+            )
             msg = "Alterações salvas com sucesso!"
             if backup_gerado:
                 msg += "Backup gerado automaticamente."
@@ -243,6 +251,10 @@ elif pagina == "Manutenção":
             )
             backup_gerado = gerar_backup_se_necessario("EXCLUSAO")
             limpar_cache()
+            logger.info(
+                "Ativo excluído com sucesso",
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EXCLUSAO", "patrimonio": patrimonio},
+            )
             msg = "Ativo removido com sucesso!"
             if backup_gerado:
                 msg += "Backup gerado automaticamente."
@@ -304,6 +316,10 @@ elif pagina == "Novo Ativo":
                 )
                 gerar_backup_se_necessario("CADASTRO")
                 limpar_cache()
+                logger.info(
+                    "Ativo cadastrado com sucesso",
+                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO", "patrimonio": novo_patrimonio},
+                )
                 st.session_state["cadastro_ok"] = True
                 st.rerun()
 
@@ -444,6 +460,10 @@ elif pagina == "Edição em Lote":
                                 "EDICAO_LOTE",
                                 pat,
                                 " | ".join(detalhes),
+                            )
+                            logger.info(
+                                "Ativo atualizado com sucesso (edição em lote)",
+                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
                             )
                             salvos += 1
 
@@ -757,6 +777,10 @@ elif pagina == "Histórico":
                                     f"Modificação #{mod_selecionada} de {backup_em_selecionado} restaurada ({len(df_preview)} registros)",
                                 )
                                 limpar_cache()
+                                logger.info(
+                                    "Backup restaurado com sucesso",
+                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "RESTAURACAO_BACKUP"},
+                                )
                                 st.success(
                                     f"Modificação #{mod_selecionada} restaurada com sucesso! "
                                     f"{len(df_preview)} registros reinseridos."
