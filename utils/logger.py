@@ -1,3 +1,15 @@
+"""
+utils/logger.py
+
+Logging JSON estruturado para o projeto.
+Separado do audit_service: aqui vivem logs técnicos/operacionais
+(erros, performance, falhas de conexão), não eventos de negócio.
+
+Em Databricks Apps, stdout/stderr são capturados automaticamente
+pelo painel de logs — por isso o formato JSON em uma linha por evento,
+fácil de filtrar e parsear depois.
+"""
+
 import json
 import logging
 import os

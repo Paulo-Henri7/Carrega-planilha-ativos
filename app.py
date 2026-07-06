@@ -11,6 +11,9 @@ st.title("📋 Controle de Ativos")
 
 from utils.auth import obter_usuario
 from utils.backup_auth import tem_acesso_backup
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _usuario_atual = obter_usuario()
 _is_admin = tem_acesso_backup(_usuario_atual)
@@ -75,6 +78,11 @@ if pagina == "Upload":
                 st.success(msg)
 
             except Exception as e:
+                logger.error(
+                    "Erro ao salvar planilha no Databricks",
+                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "UPLOAD_PLANILHA"},
+                    exc_info=True,
+                )
                 st.error(f"Erro ao salvar no Databricks: {e}")
 
 
@@ -148,6 +156,11 @@ elif pagina == "Ativos":
         st.caption(f"{len(df_filtrado)} ativos encontrados.")
 
     except Exception as e:
+        logger.error(
+            "Erro ao carregar ativos",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CARREGAR_ATIVOS"},
+            exc_info=True,
+        )
         st.error(f"Erro ao carregar ativos: {e}")
 
 
@@ -237,6 +250,11 @@ elif pagina == "Manutenção":
             st.rerun()
 
     except Exception as e:
+        logger.error(
+            "Erro na página de Manutenção",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "MANUTENCAO"},
+            exc_info=True,
+        )
         st.error(f"Erro: {e}")
 
 
@@ -290,6 +308,11 @@ elif pagina == "Novo Ativo":
                 st.rerun()
 
     except Exception as e:
+        logger.error(
+            "Erro na página de Novo Ativo",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO"},
+            exc_info=True,
+        )
         st.error(f"Erro: {e}")
 
 
@@ -425,6 +448,11 @@ elif pagina == "Edição em Lote":
                             salvos += 1
 
                         except Exception as e:
+                            logger.error(
+                                "Erro ao atualizar patrimônio na edição em lote",
+                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
+                                exc_info=True,
+                            )
                             erros.append(f"{pat}: {e}")
 
                     gerar_backup_se_necessario("EDICAO")
@@ -437,6 +465,11 @@ elif pagina == "Edição em Lote":
                     st.rerun()
 
     except Exception as e:
+        logger.error(
+            "Erro na página de Edição em Lote",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE"},
+            exc_info=True,
+        )
         st.error(f"❌ Erro: {e}")
 
 
@@ -543,6 +576,11 @@ elif pagina == "Relatório":
         st.plotly_chart(fig_resp, use_container_width=True)
 
     except Exception as e:
+        logger.error(
+            "Erro ao gerar relatório",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "RELATORIO"},
+            exc_info=True,
+        )
         st.error(f"❌ Erro ao gerar relatório: {e}")
 
 
@@ -618,6 +656,11 @@ elif pagina == "Histórico":
                 st.caption(f"{len(df_filtrado)} eventos encontrados.")
 
         except Exception as e:
+            logger.error(
+                "Erro ao carregar auditoria",
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "HISTORICO_AUDITORIA"},
+                exc_info=True,
+            )
             st.error(f"Erro ao carregar auditoria: {e}")
 
     # ---------- ABA BACKUPS ----------
@@ -720,9 +763,19 @@ elif pagina == "Histórico":
                                 )
 
                         except Exception as e:
+                            logger.error(
+                                "Erro ao restaurar backup",
+                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "RESTAURACAO_BACKUP"},
+                                exc_info=True,
+                            )
                             st.error(f"Erro ao restaurar: {e}")
 
             except Exception as e:
+                logger.error(
+                    "Erro ao carregar backups",
+                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "HISTORICO_BACKUPS"},
+                    exc_info=True,
+                )
                 st.error(f"Erro ao carregar backups: {e}")
 
 
@@ -742,6 +795,11 @@ elif pagina == "Diagnóstico":
         with get_connection() as conn:
             st.success("Conexão estabelecida com sucesso.")
     except Exception as e:
+        logger.error(
+            "Falha de conexão no diagnóstico",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "DIAGNOSTICO_CONEXAO"},
+            exc_info=True,
+        )
         st.error(f"Falha na conexão: {e}")
         st.stop()
 
@@ -753,6 +811,11 @@ elif pagina == "Diagnóstico":
             df = query_df(f"SELECT * FROM {tabela} LIMIT 1")
             st.success(f"{nome} (`{tabela}`): leitura OK — {len(df)} linha(s) retornada(s).")
         except Exception as e:
+            logger.error(
+                "Falha ao ler tabela no diagnóstico",
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "DIAGNOSTICO_LEITURA"},
+                exc_info=True,
+            )
             st.error(f"{nome} (`{tabela}`): {e}")
 
     st.markdown("#### 3. Colunas da tabela de auditoria")
@@ -766,6 +829,11 @@ elif pagina == "Diagnóstico":
         else:
             st.success("Todas as colunas esperadas estão presentes.")
     except Exception as e:
+        logger.error(
+            "Erro ao inspecionar colunas da auditoria",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "DIAGNOSTICO_COLUNAS_AUDITORIA"},
+            exc_info=True,
+        )
         st.error(f"Erro ao inspecionar auditoria: {e}")
 
     st.markdown("#### 4. Colunas da tabela de backup")
@@ -779,6 +847,11 @@ elif pagina == "Diagnóstico":
         else:
             st.success("Todas as colunas esperadas estão presentes.")
     except Exception as e:
+        logger.error(
+            "Erro ao inspecionar colunas do backup",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "DIAGNOSTICO_COLUNAS_BACKUP"},
+            exc_info=True,
+        )
         st.error(f"Erro ao inspecionar backup: {e}")
 
     st.markdown("#### 5. Teste de escrita na auditoria")
@@ -800,4 +873,9 @@ elif pagina == "Diagnóstico":
             )
             st.success("INSERT na auditoria executado com sucesso!")
         except Exception as e:
+            logger.error(
+                "Falha no INSERT de teste da auditoria",
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "DIAGNOSTICO_TESTE_INSERT"},
+                exc_info=True,
+            )
             st.error(f"Falha no INSERT da auditoria: {e}")
