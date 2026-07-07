@@ -1,5 +1,5 @@
 from db.queries import query_df, execute
-from config import TABELA, TABELA_AUDITORIA, TABELA_BACKUP, MODIFICACOES_POR_BACKUP
+from config import TABELA, TABELA_AUDITORIA, TABELA_BACKUP, MODIFICACOES_POR_BACKUP, COLUNAS
 
 
 # Ações que contam como modificação
@@ -38,15 +38,12 @@ def gerar_backup_se_necessario(acao: str) -> bool:
     if not _backup_necessario():
         return False
 
+    colunas_sql = ", ".join(COLUNAS)
     execute(
         f"""
         INSERT INTO {TABELA_BACKUP}
         SELECT
-            patrimonio,
-            modelo,
-            departamento,
-            responsavel,
-            serial_number,
+            {colunas_sql},
             current_timestamp() AS backup_em,
             {_contar_modificacoes()} AS modificacao_numero
         FROM {TABELA}

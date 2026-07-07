@@ -1,7 +1,7 @@
 import streamlit as st
 
 try:
-    from config import COLUNAS
+    from config import COLUNAS, COLUNAS_OBRIGATORIAS
 except Exception as e:
     st.error(f"Erro ao carregar config: {e}")
     st.stop()
@@ -45,7 +45,7 @@ if pagina == "Upload":
         st.subheader("Visualização dos dados")
         st.dataframe(df, use_container_width=True)
 
-        faltando = [c for c in COLUNAS if c not in df.columns]
+        faltando = [c for c in COLUNAS_OBRIGATORIAS if c not in df.columns]
         if faltando:
             st.error(f"Colunas obrigatórias ausentes: {faltando}")
             st.stop()
@@ -72,10 +72,6 @@ if pagina == "Upload":
                     backup_gerado = gerar_backup_se_necessario("UPLOAD_PLANILHA")
                     limpar_cache()
 
-                logger.info(
-                    "Upload de planilha concluído",
-                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "UPLOAD_PLANILHA"},
-                )
                 msg = f"Upload realizado! {len(df)} registros salvos."
                 if backup_gerado:
                     msg += "Backup gerado automaticamente."
@@ -109,7 +105,7 @@ elif pagina == "Ativos":
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Total de Ativos", len(df))
-        col2.metric("Departamentos", df["departamento"].nunique())
+        col2.metric("Unidades", df["unidade"].nunique())
         col3.metric("Responsáveis", df["responsavel"].nunique())
 
         st.divider()
@@ -117,13 +113,13 @@ elif pagina == "Ativos":
         # Busca rápida
         busca = st.text_input(
             "🔍 Busca rápida",
-            placeholder="Digite patrimônio, serial number, responsável ou modelo...",
+            placeholder="Digite patrimônio, hostname, responsável ou modelo...",
         )
         if busca:
             termo = busca.strip().lower()
             mascara = (
                 df["patrimonio"].astype(str).str.lower().str.contains(termo, na=False)
-                | df["serial_number"].astype(str).str.lower().str.contains(termo, na=False)
+                | df["hostname"].astype(str).str.lower().str.contains(termo, na=False)
                 | df["responsavel"].astype(str).str.lower().str.contains(termo, na=False)
                 | df["modelo"].astype(str).str.lower().str.contains(termo, na=False)
             )
@@ -176,12 +172,31 @@ elif pagina == "Manutenção":
     st.subheader("Manutenção de Ativo")
 
     try:
+        import pandas as pd
         from services.ativos_service import carregar_ativos, atualizar_ativo, excluir_ativo
         from services.audit_service import registrar_evento
         from services.backup_service import gerar_backup_se_necessario
         from services.catalogo_service import tipos_disponiveis, modelos_por_tipo, tipo_do_modelo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
+        from config import ROTULOS, COLUNAS_DATA
+
+        def _txt(valor):
+            """Converte valores nulos/NaN em string vazia para exibir em text_input."""
+            if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+                return ""
+            s = str(valor)
+            return "" if s.lower() == "nan" else s
+
+        def _data(valor):
+            """Converte valor do banco em date (ou None) para exibir em date_input."""
+            if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+                return None
+            try:
+                d = pd.to_datetime(valor)
+                return None if pd.isna(d) else d.date()
+            except Exception:
+                return None
 
         df = carregar_ativos()
 
@@ -196,14 +211,15 @@ elif pagina == "Manutenção":
 
         ativo = df[df["patrimonio"].astype(str) == patrimonio].iloc[0]
 
+        # --- Tipo / Modelo (catálogo) ---
         _tipos = tipos_disponiveis()
-        _tipo_atual = tipo_do_modelo(str(ativo["modelo"]))
+        _tipo_atual = _txt(ativo.get("tipo")) or tipo_do_modelo(str(ativo["modelo"]))
         _index_tipo = _tipos.index(_tipo_atual) if _tipo_atual in _tipos else 0
 
         if not _tipo_atual:
-            st.caption(f"⚠️ Modelo atual (`{ativo['modelo']}`) não está no catálogo.")
+            st.caption(f"⚠️ Modelo atual (`{ativo['modelo']}`) não está no catálogo — selecione o tipo manualmente.")
 
-        tipo_equipamento = st.selectbox("Tipo de Equipamento", _tipos, index=_index_tipo)
+        tipo_equipamento = st.selectbox(ROTULOS["tipo"], _tipos, index=_index_tipo)
         opcoes_modelo = modelos_por_tipo(tipo_equipamento)
 
         if str(ativo["modelo"]) in opcoes_modelo:
@@ -214,17 +230,53 @@ elif pagina == "Manutenção":
         else:
             _index_modelo = 0
 
-        novo_modelo = st.selectbox("Modelo", opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
-        novo_departamento = st.text_input("Departamento", value=str(ativo["departamento"]))
-        novo_responsavel = st.text_input("Responsável", value=str(ativo["responsavel"]))
+        novo_modelo = st.selectbox(ROTULOS["modelo"], opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
+
+        st.divider()
+
+        # --- Demais campos ---
+        col1, col2 = st.columns(2)
+        with col1:
+            novo_hostname = st.text_input(ROTULOS["hostname"], value=_txt(ativo.get("hostname")))
+            novo_cc = st.text_input(ROTULOS["cc"], value=_txt(ativo.get("cc")))
+            novo_responsavel = st.text_input(ROTULOS["responsavel"], value=_txt(ativo.get("responsavel")))
+            novo_cargo = st.text_input(ROTULOS["cargo"], value=_txt(ativo.get("cargo")))
+            novo_status = st.text_input(ROTULOS["status"], value=_txt(ativo.get("status")))
+            novo_num_pedido = st.text_input(ROTULOS["num_pedido"], value=_txt(ativo.get("num_pedido")))
+        with col2:
+            novo_gestor = st.text_input(ROTULOS["gestor"], value=_txt(ativo.get("gestor")))
+            nova_unidade = st.text_input(ROTULOS["unidade"], value=_txt(ativo.get("unidade")))
+            nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"], value=_txt(ativo.get("nota_fiscal")))
+            nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=_data(ativo.get("data_entrega")))
+            nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=_data(ativo.get("dt_compra")))
+            nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=_data(ativo.get("dt_garantia")))
+
+        dados_novos = {
+            "hostname": novo_hostname,
+            "data_entrega": nova_data_entrega,
+            "cc": novo_cc,
+            "unidade": nova_unidade,
+            "responsavel": novo_responsavel,
+            "cargo": novo_cargo,
+            "tipo": tipo_equipamento,
+            "modelo": novo_modelo,
+            "status": novo_status,
+            "num_pedido": novo_num_pedido,
+            "nota_fiscal": nova_nota_fiscal,
+            "dt_compra": nova_dt_compra,
+            "dt_garantia": nova_dt_garantia,
+            "gestor": novo_gestor,
+        }
 
         if st.button("Salvar Alterações"):
-            detalhes = (
-                f"Responsavel: {ativo['responsavel']} --> {novo_responsavel} | "
-                f"Departamento: {ativo['departamento']} --> {novo_departamento} | "
-                f"Modelo: {ativo['modelo']} --> {novo_modelo}"
-            )
-            atualizar_ativo(patrimonio, novo_modelo, novo_departamento, novo_responsavel)
+            diffs = []
+            for campo, novo_valor in dados_novos.items():
+                antigo_valor = ativo.get(campo)
+                if _txt(antigo_valor) != _txt(novo_valor):
+                    diffs.append(f"{ROTULOS.get(campo, campo)}: {_txt(antigo_valor)} --> {_txt(novo_valor)}")
+            detalhes = " | ".join(diffs) if diffs else "Nenhum campo alterado"
+
+            atualizar_ativo(patrimonio, dados_novos)
             registrar_evento(obter_usuario(), "EDICAO", patrimonio, detalhes)
             backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
@@ -288,31 +340,65 @@ elif pagina == "Novo Ativo":
         from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
+        from config import ROTULOS, COLUNAS_OBRIGATORIAS
 
-        novo_patrimonio = st.text_input("Patrimônio")
+        novo_patrimonio = st.text_input(ROTULOS["patrimonio"])
 
-        tipo_equipamento = st.selectbox("Tipo de Equipamento", tipos_disponiveis())
+        tipo_equipamento = st.selectbox(ROTULOS["tipo"], tipos_disponiveis())
         opcoes_modelo = modelos_por_tipo(tipo_equipamento) if tipo_equipamento else []
         if tipo_equipamento and not opcoes_modelo:
             st.warning("Nenhum modelo cadastrado no catálogo para este tipo.")
-        novo_modelo = st.selectbox("Modelo", opcoes_modelo) if opcoes_modelo else None
+        novo_modelo = st.selectbox(ROTULOS["modelo"], opcoes_modelo) if opcoes_modelo else None
 
-        novo_departamento = st.text_input("Departamento")
-        novo_responsavel = st.text_input("Responsável")
-        novo_serial = st.text_input("Serial Number")
+        st.divider()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            novo_hostname = st.text_input(ROTULOS["hostname"])
+            novo_cc = st.text_input(ROTULOS["cc"])
+            novo_responsavel = st.text_input(ROTULOS["responsavel"])
+            novo_cargo = st.text_input(ROTULOS["cargo"])
+            novo_status = st.text_input(ROTULOS["status"])
+            novo_num_pedido = st.text_input(ROTULOS["num_pedido"])
+        with col2:
+            novo_gestor = st.text_input(ROTULOS["gestor"])
+            nova_unidade = st.text_input(ROTULOS["unidade"])
+            nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"])
+            nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=None)
+            nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=None)
+            nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=None)
+
+        dados = {
+            "patrimonio": novo_patrimonio,
+            "hostname": novo_hostname,
+            "data_entrega": nova_data_entrega,
+            "cc": novo_cc,
+            "unidade": nova_unidade,
+            "responsavel": novo_responsavel,
+            "cargo": novo_cargo,
+            "tipo": tipo_equipamento,
+            "modelo": novo_modelo,
+            "status": novo_status,
+            "num_pedido": novo_num_pedido,
+            "nota_fiscal": nova_nota_fiscal,
+            "dt_compra": nova_dt_compra,
+            "dt_garantia": nova_dt_garantia,
+            "gestor": novo_gestor,
+        }
 
         if st.button("Cadastrar Ativo"):
-            if not all([novo_patrimonio, novo_modelo, novo_departamento, novo_responsavel]):
-                st.warning("Preencha todos os campos obrigatórios.")
+            faltando = [ROTULOS.get(c, c) for c in COLUNAS_OBRIGATORIAS if not dados.get(c)]
+            if faltando:
+                st.warning(f"Preencha todos os campos obrigatórios: {', '.join(faltando)}")
             elif patrimonio_existe(novo_patrimonio):
                 st.error("Já existe um ativo com este patrimônio.")
             else:
-                inserir_ativo(novo_patrimonio, novo_modelo, novo_departamento, novo_responsavel, novo_serial)
+                inserir_ativo(dados)
                 registrar_evento(
                     obter_usuario(),
                     "CADASTRO",
                     novo_patrimonio,
-                    f"Modelo={novo_modelo}, Departamento={novo_departamento}",
+                    f"Modelo={novo_modelo}, Unidade={nova_unidade}",
                 )
                 gerar_backup_se_necessario("CADASTRO")
                 limpar_cache()
@@ -338,7 +424,7 @@ elif pagina == "Novo Ativo":
 elif pagina == "Edição em Lote":
 
     st.subheader("✏️ Edição em Lote")
-    st.caption("Selecione os patrimônios e edite responsável e/ou departamento individualmente em cada card.")
+    st.caption("Selecione os patrimônios e edite responsável e/ou gestor individualmente em cada card.")
 
     try:
         from services.ativos_service import carregar_ativos, atualizar_ativo
@@ -354,18 +440,18 @@ elif pagina == "Edição em Lote":
             st.stop()
 
         # Filtro opcional para facilitar seleção
-        with st.expander("Filtrar lista por departamento ou responsável"):
+        with st.expander("Filtrar lista por unidade ou responsável"):
             col1, col2 = st.columns(2)
             with col1:
-                deps_filtro = ["Todos"] + sorted(df["departamento"].dropna().astype(str).unique().tolist())
-                filtro_dep = st.selectbox("Departamento", deps_filtro, key="lote_dep")
+                unidades_filtro = ["Todas"] + sorted(df["unidade"].dropna().astype(str).unique().tolist())
+                filtro_unidade = st.selectbox("Unidade", unidades_filtro, key="lote_unidade")
             with col2:
                 resps_filtro = ["Todos"] + sorted(df["responsavel"].dropna().astype(str).unique().tolist())
                 filtro_resp = st.selectbox("Responsável", resps_filtro, key="lote_resp")
 
         df_filtrado = df.copy()
-        if filtro_dep != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["departamento"].astype(str) == filtro_dep]
+        if filtro_unidade != "Todas":
+            df_filtrado = df_filtrado[df_filtrado["unidade"].astype(str) == filtro_unidade]
         if filtro_resp != "Todos":
             df_filtrado = df_filtrado[df_filtrado["responsavel"].astype(str) == filtro_resp]
 
@@ -383,7 +469,7 @@ elif pagina == "Edição em Lote":
 
             st.divider()
             st.markdown("**Edição individual** — preencha os campos que deseja alterar em cada card")
-            st.caption("Campos deixados em branco preservam o valor atual do patrimônio. Novos responsáveis e departamentos podem ser digitados livremente.")
+            st.caption("Campos deixados em branco preservam o valor atual do patrimônio.")
 
             # Um card por patrimônio selecionado
             novos_valores = {}
@@ -391,7 +477,7 @@ elif pagina == "Edição em Lote":
                 ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
 
                 with st.container(border=True):
-                    st.markdown(f"**{pat}** — modelo: `{ativo['modelo']}` · resp. atual: `{ativo['responsavel']}` · dep. atual: `{ativo['departamento']}`")
+                    st.markdown(f"**{pat}** — modelo: `{ativo['modelo']}` · resp. atual: `{ativo['responsavel']}` · gestor atual: `{ativo['gestor']}`")
 
                     col1, col2 = st.columns(2)
                     with col1:
@@ -403,24 +489,24 @@ elif pagina == "Edição em Lote":
                         if not novo_resp:
                             st.caption("Caso valor não seja alterado, permanecerá o mesmo")
                     with col2:
-                        novo_dep = st.text_input(
-                            "Novo Departamento",
+                        novo_gestor = st.text_input(
+                            "Novo Gestor",
                             placeholder="Deixe em branco para não alterar",
-                            key=f"dep_{pat}",
+                            key=f"gestor_{pat}",
                         )
-                        if not novo_dep:
+                        if not novo_gestor:
                             st.caption("Caso valor não seja alterado, permanecerá o mesmo")
 
                     novos_valores[pat] = {
                         "resp": novo_resp.strip() if novo_resp.strip() else None,
-                        "dep":  novo_dep.strip()  if novo_dep.strip()  else None,
+                        "gestor": novo_gestor.strip() if novo_gestor.strip() else None,
                     }
 
             st.divider()
 
             # Verifica se ao menos um campo foi alterado em algum card
             tem_alteracao = any(
-                v["resp"] or v["dep"] for v in novos_valores.values()
+                v["resp"] or v["gestor"] for v in novos_valores.values()
             )
 
             if not tem_alteracao:
@@ -428,7 +514,7 @@ elif pagina == "Edição em Lote":
             else:
                 # Resumo do que será salvo
                 alteracoes_resumo = [
-                    pat for pat, v in novos_valores.items() if v["resp"] or v["dep"]
+                    pat for pat, v in novos_valores.items() if v["resp"] or v["gestor"]
                 ]
                 st.success(f"{len(alteracoes_resumo)} patrimônio(s) com alterações pendentes: {', '.join(alteracoes_resumo)}")
 
@@ -438,22 +524,25 @@ elif pagina == "Edição em Lote":
 
                     for pat, vals in novos_valores.items():
                         # Patrimônios sem nenhum campo alterado são ignorados
-                        if not vals["resp"] and not vals["dep"]:
+                        if not vals["resp"] and not vals["gestor"]:
                             continue
 
                         try:
                             ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
                             resp_final = vals["resp"] if vals["resp"] else str(ativo["responsavel"])
-                            dep_final  = vals["dep"]  if vals["dep"]  else str(ativo["departamento"])
-                            mod_final  = str(ativo["modelo"])
+                            gestor_final = vals["gestor"] if vals["gestor"] else str(ativo["gestor"])
 
-                            atualizar_ativo(pat, mod_final, dep_final, resp_final)
+                            dados_atualizados = ativo.to_dict()
+                            dados_atualizados["responsavel"] = resp_final
+                            dados_atualizados["gestor"] = gestor_final
+
+                            atualizar_ativo(pat, dados_atualizados)
 
                             detalhes = []
                             if vals["resp"]:
                                 detalhes.append(f"Responsavel: {ativo['responsavel']} --> {resp_final}")
-                            if vals["dep"]:
-                                detalhes.append(f"Departamento: {ativo['departamento']} --> {dep_final}")
+                            if vals["gestor"]:
+                                detalhes.append(f"Gestor: {ativo['gestor']} --> {gestor_final}")
 
                             registrar_evento(
                                 obter_usuario(),
@@ -503,6 +592,7 @@ elif pagina == "Relatório":
     try:
         import plotly.express as px
         from services.ativos_service import carregar_ativos
+        from config import COLUNAS_OBRIGATORIAS
 
         with st.spinner("Carregando dados..."):
             df = carregar_ativos()
@@ -515,25 +605,29 @@ elif pagina == "Relatório":
         st.markdown("#### Resumo Geral")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total de Ativos", len(df))
-        col2.metric("Departamentos", df["departamento"].nunique())
+        col2.metric("Unidades", df["unidade"].nunique())
         col3.metric("Responsáveis", df["responsavel"].nunique())
         col4.metric("Modelos distintos", df["modelo"].nunique())
 
-        campos_vazios = df[COLUNAS].isnull().sum().sum() + (df[COLUNAS] == "").sum().sum()
+        # Checagem de completude considera apenas os campos obrigatórios
+        campos_vazios = (
+            df[COLUNAS_OBRIGATORIAS].isnull().sum().sum()
+            + (df[COLUNAS_OBRIGATORIAS] == "").sum().sum()
+        )
         if campos_vazios > 0:
-            st.warning(f"⚠️ {campos_vazios} campo(s) vazio(s) encontrado(s) na base.")
+            st.warning(f"⚠️ {campos_vazios} campo(s) obrigatório(s) vazio(s) encontrado(s) na base.")
             df_incompletos = df[
-                df[COLUNAS].isnull().any(axis=1)
-                | (df[COLUNAS] == "").any(axis=1)
+                df[COLUNAS_OBRIGATORIAS].isnull().any(axis=1)
+                | (df[COLUNAS_OBRIGATORIAS] == "").any(axis=1)
             ].copy()
-            df_incompletos["campos_faltando"] = df_incompletos[COLUNAS].apply(
+            df_incompletos["campos_faltando"] = df_incompletos[COLUNAS_OBRIGATORIAS].apply(
                 lambda row: ", ".join(
-                    col for col in COLUNAS
+                    col for col in COLUNAS_OBRIGATORIAS
                     if row[col] is None or str(row[col]).strip() == "" or str(row[col]) == "nan"
                 ),
                 axis=1,
             )
-            with st.expander(f"Ver {len(df_incompletos)} ativo(s) com dados incompletos"):
+            with st.expander(f"Ver {len(df_incompletos)} ativo(s) com dados obrigatórios incompletos"):
                 st.dataframe(df_incompletos, use_container_width=True)
                 st.caption("Acesse a página Manutenção ou Edição em Lote para corrigir esses registros.")
 
@@ -543,29 +637,29 @@ elif pagina == "Relatório":
         col_esq, col_dir = st.columns(2)
 
         with col_esq:
-            st.markdown("#### Ativos por Departamento")
-            dep_count = (
-                df["departamento"].astype(str)
+            st.markdown("#### Ativos por Unidade")
+            unidade_count = (
+                df["unidade"].astype(str)
                 .value_counts()
                 .reset_index()
-                .rename(columns={"index": "departamento", "count": "total"})
+                .rename(columns={"index": "unidade", "count": "total"})
             )
             fig_bar = px.bar(
-                dep_count,
-                x="departamento",
+                unidade_count,
+                x="unidade",
                 y="total",
-                labels={"departamento": "Departamento", "total": "Quantidade"},
-                color="departamento",
+                labels={"unidade": "Unidade", "total": "Quantidade"},
+                color="unidade",
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
             fig_bar.update_layout(showlegend=False, xaxis_tickangle=-30)
             st.plotly_chart(fig_bar, use_container_width=True)
 
         with col_dir:
-            st.markdown("#### Distribuição por Departamento")
+            st.markdown("#### Distribuição por Unidade")
             fig_pizza = px.pie(
-                dep_count,
-                names="departamento",
+                unidade_count,
+                names="unidade",
                 values="total",
                 color_discrete_sequence=px.colors.qualitative.Set2,
             )
@@ -750,6 +844,7 @@ elif pagina == "Histórico":
 
                     if confirmar_restore and st.button("Restaurar", type="primary"):
                         try:
+                            import pandas as pd
                             from services.audit_service import registrar_evento
                             from utils.auth import obter_usuario
 
@@ -757,16 +852,17 @@ elif pagina == "Histórico":
                                 st.error("Nenhum registro encontrado neste snapshot.")
                             else:
                                 execute(f"TRUNCATE TABLE {TABELA}")
-                                registros = df_preview[COLUNAS].astype(str).to_dict("records")
+
+                                df_restaurar = df_preview[COLUNAS].where(pd.notnull(df_preview[COLUNAS]), None)
+                                registros = df_restaurar.to_dict("records")
+
+                                colunas_sql = ", ".join(COLUNAS)
+                                placeholders = ", ".join(f":{c}" for c in COLUNAS)
 
                                 with get_connection() as conn:
                                     with conn.cursor() as cursor:
                                         cursor.executemany(
-                                            f"""
-                                            INSERT INTO {TABELA}
-                                            (patrimonio, modelo, departamento, responsavel, serial_number)
-                                            VALUES (:patrimonio, :modelo, :departamento, :responsavel, :serial_number)
-                                            """,
+                                            f"INSERT INTO {TABELA} ({colunas_sql}) VALUES ({placeholders})",
                                             registros,
                                         )
 
@@ -777,10 +873,6 @@ elif pagina == "Histórico":
                                     f"Modificação #{mod_selecionada} de {backup_em_selecionado} restaurada ({len(df_preview)} registros)",
                                 )
                                 limpar_cache()
-                                logger.info(
-                                    "Backup restaurado com sucesso",
-                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "RESTAURACAO_BACKUP"},
-                                )
                                 st.success(
                                     f"Modificação #{mod_selecionada} restaurada com sucesso! "
                                     f"{len(df_preview)} registros reinseridos."
@@ -864,7 +956,11 @@ elif pagina == "Diagnóstico":
     try:
         df_bkp = query_df(f"SELECT * FROM {TABELA_BACKUP} LIMIT 0")
         st.info(f"Colunas encontradas: `{list(df_bkp.columns)}`")
-        esperadas_bkp = ["patrimonio", "modelo", "departamento", "responsavel", "serial_number", "backup_em", "modificacao_numero"]
+        esperadas_bkp = [
+            "patrimonio", "hostname", "data_entrega", "cc", "unidade", "responsavel",
+            "cargo", "tipo", "modelo", "status", "num_pedido", "nota_fiscal",
+            "dt_compra", "dt_garantia", "gestor", "backup_em", "modificacao_numero",
+        ]
         faltando_bkp = [c for c in esperadas_bkp if c not in df_bkp.columns]
         if faltando_bkp:
             st.warning(f"⚠️ Colunas ausentes no backup: {faltando_bkp}")
