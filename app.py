@@ -179,7 +179,7 @@ elif pagina == "Manutenção":
         from services.catalogo_service import tipos_disponiveis, modelos_por_tipo, tipo_do_modelo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
-        from config import ROTULOS, COLUNAS_DATA
+        from config import ROTULOS, COLUNAS_DATA, COLUNAS
 
         def _txt(valor):
             """Converte valores nulos/NaN em string vazia para exibir em text_input."""
@@ -211,61 +211,70 @@ elif pagina == "Manutenção":
 
         ativo = df[df["patrimonio"].astype(str) == patrimonio].iloc[0]
 
-        nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=_data(ativo.get("data_entrega")))
-        novo_hostname = st.text_input(ROTULOS["hostname"], value=_txt(ativo.get("hostname")))
-        novo_responsavel = st.text_input(ROTULOS["responsavel"], value=_txt(ativo.get("responsavel")))
-        nova_unidade = st.text_input(ROTULOS["unidade"], value=_txt(ativo.get("unidade")))
-        novo_cargo = st.text_input(ROTULOS["cargo"], value=_txt(ativo.get("cargo")))
-        novo_gestor = st.text_input(ROTULOS["gestor"], value=_txt(ativo.get("gestor")))
+        # --- Seleção de quais campos editar ---
+        campos_editaveis = [c for c in COLUNAS if c != "patrimonio"]
+        rotulo_para_campo = {ROTULOS[c]: c for c in campos_editaveis}
 
-        # --- Tipo / Modelo (catálogo) ---
-        _tipos = tipos_disponiveis()
-        _tipo_atual = _txt(ativo.get("tipo")) or tipo_do_modelo(str(ativo["modelo"]))
-        _index_tipo = _tipos.index(_tipo_atual) if _tipo_atual in _tipos else 0
+        rotulos_selecionados = st.multiselect(
+            "Quais campos deseja alterar?",
+            [ROTULOS[c] for c in campos_editaveis],
+            placeholder="Selecione um ou mais campos",
+        )
+        campos_selecionados = {rotulo_para_campo[r] for r in rotulos_selecionados}
 
-        if not _tipo_atual:
-            st.caption(f"⚠️ Modelo atual (`{ativo['modelo']}`) não está no catálogo — selecione o tipo manualmente.")
+        # Tipo e Modelo são dependentes (catálogo) — se um for selecionado, o outro aparece junto
+        if "tipo" in campos_selecionados or "modelo" in campos_selecionados:
+            campos_selecionados.add("tipo")
+            campos_selecionados.add("modelo")
 
-        tipo_equipamento = st.selectbox(ROTULOS["tipo"], _tipos, index=_index_tipo)
-        opcoes_modelo = modelos_por_tipo(tipo_equipamento)
+        # Ponto de partida: mantém os valores atuais de todos os campos
+        dados_novos = {c: ativo.get(c) for c in campos_editaveis}
 
-        if str(ativo["modelo"]) in opcoes_modelo:
-            _index_modelo = opcoes_modelo.index(str(ativo["modelo"]))
-        elif tipo_equipamento == _tipo_atual:
-            opcoes_modelo = [str(ativo["modelo"])] + opcoes_modelo
-            _index_modelo = 0
+        if not campos_selecionados:
+            st.info("Selecione ao menos um campo acima para habilitar a edição.")
         else:
-            _index_modelo = 0
+            st.divider()
 
-        novo_modelo = st.selectbox(ROTULOS["modelo"], opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
+            for campo in campos_editaveis:  # respeita a ordem definida em config.COLUNAS
+                if campo not in campos_selecionados:
+                    continue
 
-        novo_status = st.text_input(ROTULOS["status"], value=_txt(ativo.get("status")))
-        novo_cc = st.text_input(ROTULOS["cc"], value=_txt(ativo.get("cc")))
-        novo_num_pedido = st.text_input(ROTULOS["num_pedido"], value=_txt(ativo.get("num_pedido")))
-        nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"], value=_txt(ativo.get("nota_fiscal")))
-        nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=_data(ativo.get("dt_compra")))
-        nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=_data(ativo.get("dt_garantia")))
+                rotulo = ROTULOS[campo]
 
-        dados_novos = {
-            "data_entrega": nova_data_entrega,
-            "hostname": novo_hostname,
-            "responsavel": novo_responsavel,
-            "unidade": nova_unidade,
-            "cargo": novo_cargo,
-            "gestor": novo_gestor,
-            "tipo": tipo_equipamento,
-            "modelo": novo_modelo,
-            "status": novo_status,
-            "cc": novo_cc,
-            "num_pedido": novo_num_pedido,
-            "nota_fiscal": nova_nota_fiscal,
-            "dt_compra": nova_dt_compra,
-            "dt_garantia": nova_dt_garantia,
-        }
+                if campo == "tipo":
+                    _tipos = tipos_disponiveis()
+                    _tipo_atual = _txt(ativo.get("tipo")) or tipo_do_modelo(str(ativo["modelo"]))
+                    _index_tipo = _tipos.index(_tipo_atual) if _tipo_atual in _tipos else 0
+                    if not _tipo_atual:
+                        st.caption(f"⚠️ Modelo atual (`{ativo['modelo']}`) não está no catálogo — selecione o tipo manualmente.")
+                    dados_novos["tipo"] = st.selectbox(rotulo, _tipos, index=_index_tipo)
 
-        if st.button("Salvar Alterações"):
+                elif campo == "modelo":
+                    tipo_para_filtro = dados_novos.get("tipo")
+                    opcoes_modelo = modelos_por_tipo(tipo_para_filtro)
+                    if str(ativo["modelo"]) in opcoes_modelo:
+                        _index_modelo = opcoes_modelo.index(str(ativo["modelo"]))
+                    else:
+                        opcoes_modelo = [str(ativo["modelo"])] + opcoes_modelo
+                        _index_modelo = 0
+                    dados_novos["modelo"] = st.selectbox(rotulo, opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
+
+                elif campo in COLUNAS_DATA:
+                    dados_novos[campo] = st.date_input(rotulo, value=_data(ativo.get(campo)))
+
+                else:
+                    dados_novos[campo] = st.text_input(rotulo, value=_txt(ativo.get(campo)))
+
+            campos_nao_selecionados = [c for c in campos_editaveis if c not in campos_selecionados]
+            if campos_nao_selecionados:
+                with st.expander(f"Ver os outros {len(campos_nao_selecionados)} campo(s) — não serão alterados"):
+                    st.table({ROTULOS[c]: _txt(ativo.get(c)) for c in campos_nao_selecionados})
+
+        if campos_selecionados and st.button("Salvar Alterações"):
             diffs = []
             for campo, novo_valor in dados_novos.items():
+                if campo not in campos_selecionados:
+                    continue
                 antigo_valor = ativo.get(campo)
                 if _txt(antigo_valor) != _txt(novo_valor):
                     diffs.append(f"{ROTULOS.get(campo, campo)}: {_txt(antigo_valor)} --> {_txt(novo_valor)}")
@@ -539,14 +548,34 @@ elif pagina == "Cadastro em Lote":
 elif pagina == "Edição em Lote":
 
     st.subheader("✏️ Edição em Lote")
-    st.caption("Selecione os patrimônios e edite responsável e/ou gestor individualmente em cada card.")
+    st.caption("Selecione os patrimônios, escolha quais campos deseja poder alterar, e preencha apenas o que for necessário em cada card.")
 
     try:
+        import pandas as pd
         from services.ativos_service import carregar_ativos, atualizar_ativo
         from services.audit_service import registrar_evento
         from services.backup_service import gerar_backup_se_necessario
+        from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
+        from config import ROTULOS, COLUNAS_DATA, COLUNAS
+
+        def _txt(valor):
+            if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+                return ""
+            s = str(valor)
+            return "" if s.lower() == "nan" else s
+
+        SENTINEL = "— não alterar —"
+        campos_editaveis = [c for c in COLUNAS if c != "patrimonio"]
+        rotulo_para_campo = {ROTULOS[c]: c for c in campos_editaveis}
+
+        def _tem_valor(campo, valor):
+            if campo in ("tipo", "modelo"):
+                return bool(valor) and valor != SENTINEL
+            if campo in COLUNAS_DATA:
+                return valor is not None
+            return bool(valor and str(valor).strip())
 
         df = carregar_ativos()
 
@@ -583,110 +612,132 @@ elif pagina == "Edição em Lote":
             )
 
             st.divider()
-            st.markdown("**Edição individual** — preencha os campos que deseja alterar em cada card")
-            st.caption("Campos deixados em branco preservam o valor atual do patrimônio.")
 
-            # Um card por patrimônio selecionado
-            novos_valores = {}
-            for pat in patrimonios_selecionados:
-                ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
-
-                with st.container(border=True):
-                    st.markdown(f"**{pat}** — modelo: `{ativo['modelo']}` · resp. atual: `{ativo['responsavel']}` · gestor atual: `{ativo['gestor']}`")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        novo_resp = st.text_input(
-                            "Novo Responsável",
-                            placeholder="Deixe em branco para não alterar",
-                            key=f"resp_{pat}",
-                        )
-                        if not novo_resp:
-                            st.caption("Caso valor não seja alterado, permanecerá o mesmo")
-                    with col2:
-                        novo_gestor = st.text_input(
-                            "Novo Gestor",
-                            placeholder="Deixe em branco para não alterar",
-                            key=f"gestor_{pat}",
-                        )
-                        if not novo_gestor:
-                            st.caption("Caso valor não seja alterado, permanecerá o mesmo")
-
-                    novos_valores[pat] = {
-                        "resp": novo_resp.strip() if novo_resp.strip() else None,
-                        "gestor": novo_gestor.strip() if novo_gestor.strip() else None,
-                    }
-
-            st.divider()
-
-            # Verifica se ao menos um campo foi alterado em algum card
-            tem_alteracao = any(
-                v["resp"] or v["gestor"] for v in novos_valores.values()
+            rotulos_campos_lote = st.multiselect(
+                "Quais campos deseja poder alterar nesta edição em lote?",
+                [ROTULOS[c] for c in campos_editaveis],
+                placeholder="Selecione um ou mais campos",
             )
+            campos_lote = {rotulo_para_campo[r] for r in rotulos_campos_lote}
 
-            if not tem_alteracao:
-                st.info("Selecione ao menos um novo valor em algum dos cards para habilitar o salvamento.")
+            # Tipo e Modelo são dependentes (catálogo) — se um for escolhido, o outro aparece junto
+            if "tipo" in campos_lote or "modelo" in campos_lote:
+                campos_lote.add("tipo")
+                campos_lote.add("modelo")
+
+            if not campos_lote:
+                st.info("Selecione ao menos um campo acima para habilitar a edição em lote.")
             else:
-                # Resumo do que será salvo
-                alteracoes_resumo = [
-                    pat for pat, v in novos_valores.items() if v["resp"] or v["gestor"]
-                ]
-                st.success(f"{len(alteracoes_resumo)} patrimônio(s) com alterações pendentes: {', '.join(alteracoes_resumo)}")
+                st.divider()
+                st.markdown("**Edição individual** — preencha, em cada card, apenas os campos que deseja alterar")
+                st.caption("Campos deixados em branco (ou marcados como \"não alterar\") preservam o valor atual do patrimônio.")
 
-                if st.button(f"Salvar alterações ({len(alteracoes_resumo)} patrimônios)", type="primary"):
-                    erros = []
-                    salvos = 0
+                # Um card por patrimônio selecionado
+                novos_valores = {}
+                for pat in patrimonios_selecionados:
+                    ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
 
-                    for pat, vals in novos_valores.items():
-                        # Patrimônios sem nenhum campo alterado são ignorados
-                        if not vals["resp"] and not vals["gestor"]:
-                            continue
+                    with st.container(border=True):
+                        st.markdown(f"**{pat}** — modelo atual: `{ativo['modelo']}` · responsável atual: `{ativo['responsavel']}`")
 
-                        try:
-                            ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
-                            resp_final = vals["resp"] if vals["resp"] else str(ativo["responsavel"])
-                            gestor_final = vals["gestor"] if vals["gestor"] else str(ativo["gestor"])
+                        valores_pat = {}
+                        for campo in campos_editaveis:  # respeita a ordem de config.COLUNAS
+                            if campo not in campos_lote:
+                                continue
+                            rotulo = ROTULOS[campo]
 
-                            dados_atualizados = ativo.to_dict()
-                            dados_atualizados["responsavel"] = resp_final
-                            dados_atualizados["gestor"] = gestor_final
+                            if campo == "tipo":
+                                opcoes = [SENTINEL] + tipos_disponiveis()
+                                valores_pat["tipo"] = st.selectbox(rotulo, opcoes, key=f"tipo_{pat}")
+                            elif campo == "modelo":
+                                tipo_escolhido = valores_pat.get("tipo")
+                                if _tem_valor("tipo", tipo_escolhido):
+                                    opcoes_modelo = [SENTINEL] + modelos_por_tipo(tipo_escolhido)
+                                else:
+                                    opcoes_modelo = [SENTINEL, str(ativo["modelo"])]
+                                valores_pat["modelo"] = st.selectbox(rotulo, opcoes_modelo, key=f"modelo_{pat}")
+                            elif campo in COLUNAS_DATA:
+                                valores_pat[campo] = st.date_input(
+                                    rotulo, value=None, key=f"{campo}_{pat}"
+                                )
+                            else:
+                                valores_pat[campo] = st.text_input(
+                                    rotulo,
+                                    placeholder="Deixe em branco para não alterar",
+                                    key=f"{campo}_{pat}",
+                                )
 
-                            atualizar_ativo(pat, dados_atualizados)
+                        novos_valores[pat] = valores_pat
 
-                            detalhes = []
-                            if vals["resp"]:
-                                detalhes.append(f"Responsavel: {ativo['responsavel']} --> {resp_final}")
-                            if vals["gestor"]:
-                                detalhes.append(f"Gestor: {ativo['gestor']} --> {gestor_final}")
+                st.divider()
 
-                            registrar_evento(
-                                obter_usuario(),
-                                "EDICAO_LOTE",
-                                pat,
-                                " | ".join(detalhes),
-                            )
-                            logger.info(
-                                "Ativo atualizado com sucesso (edição em lote)",
-                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
-                            )
-                            salvos += 1
+                # Verifica se ao menos um campo foi preenchido em algum card
+                tem_alteracao = any(
+                    any(_tem_valor(c, v) for c, v in vals.items())
+                    for vals in novos_valores.values()
+                )
 
-                        except Exception as e:
-                            logger.error(
-                                "Erro ao atualizar patrimônio na edição em lote",
-                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
-                                exc_info=True,
-                            )
-                            erros.append(f"{pat}: {e}")
+                if not tem_alteracao:
+                    st.info("Preencha ao menos um campo em algum dos cards para habilitar o salvamento.")
+                else:
+                    alteracoes_resumo = [
+                        pat for pat, vals in novos_valores.items()
+                        if any(_tem_valor(c, v) for c, v in vals.items())
+                    ]
+                    st.success(f"{len(alteracoes_resumo)} patrimônio(s) com alterações pendentes: {', '.join(alteracoes_resumo)}")
 
-                    gerar_backup_se_necessario("EDICAO")
-                    limpar_cache()
+                    if st.button(f"Salvar alterações ({len(alteracoes_resumo)} patrimônios)", type="primary"):
+                        erros = []
+                        salvos = 0
 
-                    if erros:
-                        st.warning(f"Concluído com erros em {len(erros)} patrimônio(s): {erros}")
-                    if salvos:
-                        st.success(f"✅ {salvos} patrimônio(s) atualizado(s) com sucesso!")
-                    st.rerun()
+                        for pat, vals in novos_valores.items():
+                            # Patrimônios sem nenhum campo preenchido são ignorados
+                            if not any(_tem_valor(c, v) for c, v in vals.items()):
+                                continue
+
+                            try:
+                                ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
+                                dados_atualizados = ativo.to_dict()
+                                diffs = []
+
+                                for campo, valor in vals.items():
+                                    if not _tem_valor(campo, valor):
+                                        continue
+                                    valor_final = valor.strip() if isinstance(valor, str) else valor
+                                    dados_atualizados[campo] = valor_final
+                                    diffs.append(f"{ROTULOS[campo]}: {_txt(ativo.get(campo))} --> {_txt(valor_final)}")
+
+                                atualizar_ativo(pat, dados_atualizados)
+
+                                registrar_evento(
+                                    obter_usuario(),
+                                    "EDICAO_LOTE",
+                                    pat,
+                                    " | ".join(diffs),
+                                )
+                                logger.info(
+                                    "Ativo atualizado com sucesso (edição em lote)",
+                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
+                                )
+                                salvos += 1
+
+                            except Exception as e:
+                                logger.error(
+                                    "Erro ao atualizar patrimônio na edição em lote",
+                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
+                                    exc_info=True,
+                                )
+                                erros.append(f"{pat}: {e}")
+
+                        if salvos:
+                            gerar_backup_se_necessario("EDICAO")
+                            limpar_cache()
+
+                        if erros:
+                            st.warning(f"Concluído com erros em {len(erros)} patrimônio(s): {erros}")
+                        if salvos:
+                            st.success(f"✅ {salvos} patrimônio(s) atualizado(s) com sucesso!")
+                        st.rerun()
 
     except Exception as e:
         logger.error(
