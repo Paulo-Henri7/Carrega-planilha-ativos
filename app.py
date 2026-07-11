@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 _usuario_atual = obter_usuario()
 _is_admin = tem_acesso_backup(_usuario_atual)
 
-_menu = ["Ativos", "Manutenção", "Novo Ativo", "Edição em Lote", "Relatório", "Histórico"]
+_menu = ["Ativos", "Manutenção", "Novo Ativo", "Cadastro em Lote", "Edição em Lote", "Relatório", "Histórico"]
 if _is_admin:
     _menu = ["Upload"] + _menu + ["Diagnóstico"]
 
@@ -416,6 +416,131 @@ elif pagina == "Novo Ativo":
             exc_info=True,
         )
         st.error(f"Erro: {e}")
+
+
+# ======================
+# CADASTRO EM LOTE
+# ======================
+elif pagina == "Cadastro em Lote":
+
+    st.subheader("📥 Cadastro em Lote")
+    st.caption(
+        "Adicione várias linhas na tabela abaixo (clique no `+` no final) e cadastre todas de uma vez. "
+        "Isso ADICIONA novos ativos — diferente do Upload, não substitui a base atual."
+    )
+
+    try:
+        import pandas as pd
+        from services.ativos_service import patrimonio_existe, inserir_ativo
+        from services.audit_service import registrar_evento
+        from services.backup_service import gerar_backup_se_necessario
+        from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
+        from utils.auth import obter_usuario
+        from utils.cache import limpar_cache
+        from config import COLUNAS, COLUNAS_OBRIGATORIAS, ROTULOS
+
+        _tipos = tipos_disponiveis()
+        _modelos_todos = sorted({m for t in _tipos for m in modelos_por_tipo(t)})
+
+        st.caption(
+            "⚠️ O Modelo aqui não é filtrado automaticamente pelo Tipo selecionado na linha — "
+            "confira se a combinação Tipo + Modelo faz sentido antes de cadastrar."
+        )
+
+        df_editor = st.data_editor(
+            pd.DataFrame(columns=COLUNAS),
+            num_rows="dynamic",
+            use_container_width=True,
+            key="cadastro_lote_editor",
+            column_config={
+                "patrimonio": st.column_config.TextColumn(ROTULOS["patrimonio"], required=True),
+                "hostname": st.column_config.TextColumn(ROTULOS["hostname"]),
+                "data_entrega": st.column_config.DateColumn(ROTULOS["data_entrega"]),
+                "cc": st.column_config.TextColumn(ROTULOS["cc"]),
+                "unidade": st.column_config.TextColumn(ROTULOS["unidade"]),
+                "responsavel": st.column_config.TextColumn(ROTULOS["responsavel"]),
+                "cargo": st.column_config.TextColumn(ROTULOS["cargo"]),
+                "tipo": st.column_config.SelectboxColumn(ROTULOS["tipo"], options=_tipos),
+                "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_todos),
+                "status": st.column_config.TextColumn(ROTULOS["status"]),
+                "num_pedido": st.column_config.TextColumn(ROTULOS["num_pedido"]),
+                "nota_fiscal": st.column_config.TextColumn(ROTULOS["nota_fiscal"]),
+                "dt_compra": st.column_config.DateColumn(ROTULOS["dt_compra"]),
+                "dt_garantia": st.column_config.DateColumn(ROTULOS["dt_garantia"]),
+                "gestor": st.column_config.TextColumn(ROTULOS["gestor"]),
+            },
+        )
+
+        linhas_preenchidas = df_editor.dropna(how="all")
+
+        if linhas_preenchidas.empty:
+            st.info("Adicione linhas na tabela acima (clique no `+` no final) para começar.")
+        else:
+            st.caption(f"{len(linhas_preenchidas)} linha(s) preenchida(s).")
+
+            if st.button(f"Cadastrar {len(linhas_preenchidas)} ativo(s)", type="primary"):
+                erros = []
+                cadastrados = 0
+                patrimonios_no_lote = set()
+
+                for idx, row in linhas_preenchidas.iterrows():
+                    dados = row.to_dict()
+                    patrimonio = str(dados.get("patrimonio") or "").strip()
+
+                    faltando = [ROTULOS.get(c, c) for c in COLUNAS_OBRIGATORIAS if not dados.get(c)]
+                    if faltando:
+                        erros.append(f"Linha {idx + 1}: campos obrigatórios ausentes ({', '.join(faltando)})")
+                        continue
+
+                    if patrimonio in patrimonios_no_lote:
+                        erros.append(f"Linha {idx + 1}: patrimônio '{patrimonio}' duplicado dentro do próprio lote")
+                        continue
+
+                    if patrimonio_existe(patrimonio):
+                        erros.append(f"Linha {idx + 1}: patrimônio '{patrimonio}' já existe na base")
+                        continue
+
+                    try:
+                        inserir_ativo(dados)
+                        registrar_evento(
+                            obter_usuario(),
+                            "CADASTRO_LOTE",
+                            patrimonio,
+                            f"Modelo={dados.get('modelo')}, Unidade={dados.get('unidade')}",
+                        )
+                        logger.info(
+                            "Ativo cadastrado com sucesso (cadastro em lote)",
+                            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE", "patrimonio": patrimonio},
+                        )
+                        patrimonios_no_lote.add(patrimonio)
+                        cadastrados += 1
+                    except Exception as e:
+                        logger.error(
+                            "Erro ao cadastrar ativo no lote",
+                            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE", "patrimonio": patrimonio},
+                            exc_info=True,
+                        )
+                        erros.append(f"Linha {idx + 1} ({patrimonio}): {e}")
+
+                if cadastrados:
+                    gerar_backup_se_necessario("CADASTRO")
+                    limpar_cache()
+
+                if erros:
+                    st.warning(f"Concluído com {len(erros)} erro(s):")
+                    for erro in erros:
+                        st.text(f"• {erro}")
+                if cadastrados:
+                    st.success(f"✅ {cadastrados} ativo(s) cadastrado(s) com sucesso!")
+                    st.rerun()
+
+    except Exception as e:
+        logger.error(
+            "Erro na página de Cadastro em Lote",
+            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE"},
+            exc_info=True,
+        )
+        st.error(f"❌ Erro: {e}")
 
 
 # ======================
