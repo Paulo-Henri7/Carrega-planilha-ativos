@@ -211,6 +211,13 @@ elif pagina == "Manutenção":
 
         ativo = df[df["patrimonio"].astype(str) == patrimonio].iloc[0]
 
+        nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=_data(ativo.get("data_entrega")))
+        novo_hostname = st.text_input(ROTULOS["hostname"], value=_txt(ativo.get("hostname")))
+        novo_responsavel = st.text_input(ROTULOS["responsavel"], value=_txt(ativo.get("responsavel")))
+        nova_unidade = st.text_input(ROTULOS["unidade"], value=_txt(ativo.get("unidade")))
+        novo_cargo = st.text_input(ROTULOS["cargo"], value=_txt(ativo.get("cargo")))
+        novo_gestor = st.text_input(ROTULOS["gestor"], value=_txt(ativo.get("gestor")))
+
         # --- Tipo / Modelo (catálogo) ---
         _tipos = tipos_disponiveis()
         _tipo_atual = _txt(ativo.get("tipo")) or tipo_do_modelo(str(ativo["modelo"]))
@@ -232,40 +239,28 @@ elif pagina == "Manutenção":
 
         novo_modelo = st.selectbox(ROTULOS["modelo"], opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
 
-        st.divider()
-
-        # --- Demais campos ---
-        col1, col2 = st.columns(2)
-        with col1:
-            novo_hostname = st.text_input(ROTULOS["hostname"], value=_txt(ativo.get("hostname")))
-            novo_cc = st.text_input(ROTULOS["cc"], value=_txt(ativo.get("cc")))
-            novo_responsavel = st.text_input(ROTULOS["responsavel"], value=_txt(ativo.get("responsavel")))
-            novo_cargo = st.text_input(ROTULOS["cargo"], value=_txt(ativo.get("cargo")))
-            novo_status = st.text_input(ROTULOS["status"], value=_txt(ativo.get("status")))
-            novo_num_pedido = st.text_input(ROTULOS["num_pedido"], value=_txt(ativo.get("num_pedido")))
-        with col2:
-            novo_gestor = st.text_input(ROTULOS["gestor"], value=_txt(ativo.get("gestor")))
-            nova_unidade = st.text_input(ROTULOS["unidade"], value=_txt(ativo.get("unidade")))
-            nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"], value=_txt(ativo.get("nota_fiscal")))
-            nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=_data(ativo.get("data_entrega")))
-            nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=_data(ativo.get("dt_compra")))
-            nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=_data(ativo.get("dt_garantia")))
+        novo_status = st.text_input(ROTULOS["status"], value=_txt(ativo.get("status")))
+        novo_cc = st.text_input(ROTULOS["cc"], value=_txt(ativo.get("cc")))
+        novo_num_pedido = st.text_input(ROTULOS["num_pedido"], value=_txt(ativo.get("num_pedido")))
+        nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"], value=_txt(ativo.get("nota_fiscal")))
+        nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=_data(ativo.get("dt_compra")))
+        nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=_data(ativo.get("dt_garantia")))
 
         dados_novos = {
-            "hostname": novo_hostname,
             "data_entrega": nova_data_entrega,
-            "cc": novo_cc,
-            "unidade": nova_unidade,
+            "hostname": novo_hostname,
             "responsavel": novo_responsavel,
+            "unidade": nova_unidade,
             "cargo": novo_cargo,
+            "gestor": novo_gestor,
             "tipo": tipo_equipamento,
             "modelo": novo_modelo,
             "status": novo_status,
+            "cc": novo_cc,
             "num_pedido": novo_num_pedido,
             "nota_fiscal": nova_nota_fiscal,
             "dt_compra": nova_dt_compra,
             "dt_garantia": nova_dt_garantia,
-            "gestor": novo_gestor,
         }
 
         if st.button("Salvar Alterações"):
@@ -342,7 +337,13 @@ elif pagina == "Novo Ativo":
         from utils.cache import limpar_cache
         from config import ROTULOS, COLUNAS_OBRIGATORIAS
 
+        nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=None)
         novo_patrimonio = st.text_input(ROTULOS["patrimonio"])
+        novo_hostname = st.text_input(ROTULOS["hostname"])
+        novo_responsavel = st.text_input(ROTULOS["responsavel"])
+        nova_unidade = st.text_input(ROTULOS["unidade"])
+        novo_cargo = st.text_input(ROTULOS["cargo"])
+        novo_gestor = st.text_input(ROTULOS["gestor"])
 
         tipo_equipamento = st.selectbox(ROTULOS["tipo"], tipos_disponiveis())
         opcoes_modelo = modelos_por_tipo(tipo_equipamento) if tipo_equipamento else []
@@ -350,40 +351,29 @@ elif pagina == "Novo Ativo":
             st.warning("Nenhum modelo cadastrado no catálogo para este tipo.")
         novo_modelo = st.selectbox(ROTULOS["modelo"], opcoes_modelo) if opcoes_modelo else None
 
-        st.divider()
-
-        col1, col2 = st.columns(2)
-        with col1:
-            novo_hostname = st.text_input(ROTULOS["hostname"])
-            novo_cc = st.text_input(ROTULOS["cc"])
-            novo_responsavel = st.text_input(ROTULOS["responsavel"])
-            novo_cargo = st.text_input(ROTULOS["cargo"])
-            novo_status = st.text_input(ROTULOS["status"])
-            novo_num_pedido = st.text_input(ROTULOS["num_pedido"])
-        with col2:
-            novo_gestor = st.text_input(ROTULOS["gestor"])
-            nova_unidade = st.text_input(ROTULOS["unidade"])
-            nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"])
-            nova_data_entrega = st.date_input(ROTULOS["data_entrega"], value=None)
-            nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=None)
-            nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=None)
+        novo_status = st.text_input(ROTULOS["status"])
+        novo_cc = st.text_input(ROTULOS["cc"])
+        novo_num_pedido = st.text_input(ROTULOS["num_pedido"])
+        nova_nota_fiscal = st.text_input(ROTULOS["nota_fiscal"])
+        nova_dt_compra = st.date_input(ROTULOS["dt_compra"], value=None)
+        nova_dt_garantia = st.date_input(ROTULOS["dt_garantia"], value=None)
 
         dados = {
+            "data_entrega": nova_data_entrega,
             "patrimonio": novo_patrimonio,
             "hostname": novo_hostname,
-            "data_entrega": nova_data_entrega,
-            "cc": novo_cc,
-            "unidade": nova_unidade,
             "responsavel": novo_responsavel,
+            "unidade": nova_unidade,
             "cargo": novo_cargo,
+            "gestor": novo_gestor,
             "tipo": tipo_equipamento,
             "modelo": novo_modelo,
             "status": novo_status,
+            "cc": novo_cc,
             "num_pedido": novo_num_pedido,
             "nota_fiscal": nova_nota_fiscal,
             "dt_compra": nova_dt_compra,
             "dt_garantia": nova_dt_garantia,
-            "gestor": novo_gestor,
         }
 
         if st.button("Cadastrar Ativo"):
@@ -453,21 +443,21 @@ elif pagina == "Cadastro em Lote":
             use_container_width=True,
             key="cadastro_lote_editor",
             column_config={
+                "data_entrega": st.column_config.DateColumn(ROTULOS["data_entrega"]),
                 "patrimonio": st.column_config.TextColumn(ROTULOS["patrimonio"], required=True),
                 "hostname": st.column_config.TextColumn(ROTULOS["hostname"]),
-                "data_entrega": st.column_config.DateColumn(ROTULOS["data_entrega"]),
-                "cc": st.column_config.TextColumn(ROTULOS["cc"]),
-                "unidade": st.column_config.TextColumn(ROTULOS["unidade"]),
                 "responsavel": st.column_config.TextColumn(ROTULOS["responsavel"]),
+                "unidade": st.column_config.TextColumn(ROTULOS["unidade"]),
                 "cargo": st.column_config.TextColumn(ROTULOS["cargo"]),
+                "gestor": st.column_config.TextColumn(ROTULOS["gestor"]),
                 "tipo": st.column_config.SelectboxColumn(ROTULOS["tipo"], options=_tipos),
                 "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_todos),
                 "status": st.column_config.TextColumn(ROTULOS["status"]),
+                "cc": st.column_config.TextColumn(ROTULOS["cc"]),
                 "num_pedido": st.column_config.TextColumn(ROTULOS["num_pedido"]),
                 "nota_fiscal": st.column_config.TextColumn(ROTULOS["nota_fiscal"]),
                 "dt_compra": st.column_config.DateColumn(ROTULOS["dt_compra"]),
                 "dt_garantia": st.column_config.DateColumn(ROTULOS["dt_garantia"]),
-                "gestor": st.column_config.TextColumn(ROTULOS["gestor"]),
             },
         )
 

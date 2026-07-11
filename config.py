@@ -8,30 +8,30 @@ MODIFICACOES_POR_BACKUP = 10
 
 # Todas as colunas da tabela de ativos, na ordem usada nos formulários e telas
 COLUNAS = [
+    "data_entrega",
     "patrimonio",
     "hostname",
-    "data_entrega",
-    "cc",
-    "unidade",
     "responsavel",
+    "unidade",
     "cargo",
+    "gestor",
     "tipo",
     "modelo",
     "status",
+    "cc",
     "num_pedido",
     "nota_fiscal",
     "dt_compra",
     "dt_garantia",
-    "gestor",
 ]
 
 # Subconjunto de campos obrigatórios no cadastro, edição e upload de planilha.
 # Ajuste esta lista se quiser exigir mais (ou menos) campos.
 COLUNAS_OBRIGATORIAS = [
     "patrimonio",
+    "responsavel",
     "tipo",
     "modelo",
-    "responsavel",
 ]
 
 # Colunas do tipo DATE — usadas para exibir o widget de calendário correto
@@ -44,19 +44,19 @@ COLUNAS_DATA = [
 
 # Rótulos amigáveis exibidos na interface (chave = nome da coluna no banco)
 ROTULOS = {
+    "data_entrega": "Data de Entrega",
     "patrimonio": "Patrimônio",
     "hostname": "Hostname",
-    "data_entrega": "Data de Entrega",
-    "cc": "CC",
-    "unidade": "Unidade",
     "responsavel": "Colaborador",
+    "unidade": "Unidade",
     "cargo": "Cargo",
+    "gestor": "Gestor",
     "tipo": "Tipo Equip.",
     "modelo": "Modelo",
     "status": "ST",
+    "cc": "CC",
     "num_pedido": "Num Pedido",
     "nota_fiscal": "Nota Fiscal",
     "dt_compra": "Dt Compra",
     "dt_garantia": "Dt Garantia",
-    "gestor": "Gestor",
 }

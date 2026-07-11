@@ -7,7 +7,8 @@ from config import TABELA, COLUNAS
 
 @st.cache_data(ttl=300)  # 5 min — rede de segurança; o cache já é invalidado após toda escrita
 def carregar_ativos():
-    return query_df(f"SELECT * FROM {TABELA}")
+    colunas_sql = ", ".join(COLUNAS)
+    return query_df(f"SELECT {colunas_sql} FROM {TABELA}")
 
 
 def patrimonio_existe(patrimonio):
