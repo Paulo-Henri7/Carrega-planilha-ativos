@@ -1,8 +1,36 @@
+import math
 import pandas as pd
 import streamlit as st
 from db.queries import query_df, execute
 from db.connection import get_connection
 from config import TABELA, COLUNAS
+
+
+def sanitizar_valor(v):
+    """
+    Normaliza um valor antes de enviar como parâmetro SQL.
+    Necessário porque o conector do Databricks não sabe inferir o tipo de
+    um pandas.Timestamp (comum quando os dados vêm de planilha Excel ou
+    de uma consulta SQL anterior) — precisa virar datetime.date nativo.
+    NaN/NaT também viram None (NULL no banco).
+    """
+    if v is None:
+        return None
+    if isinstance(v, pd.Timestamp):
+        return None if pd.isna(v) else v.date()
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def sanitizar_registro(dados: dict) -> dict:
+    """Aplica sanitizar_valor em todos os valores de um dict."""
+    return {k: sanitizar_valor(v) for k, v in dados.items()}
 
 
 @st.cache_data(ttl=300)  # 5 min — rede de segurança; o cache já é invalidado após toda escrita
@@ -31,7 +59,7 @@ def substituir_todos(df: pd.DataFrame):
         if coluna not in df.columns:
             df[coluna] = None
 
-    registros = df[COLUNAS].to_dict("records")
+    registros = [sanitizar_registro(r) for r in df[COLUNAS].to_dict("records")]
     colunas_sql = ", ".join(COLUNAS)
     placeholders = ", ".join(f":{c}" for c in COLUNAS)
 
@@ -49,7 +77,7 @@ def inserir_ativo(dados: dict):
     `dados` deve ser um dict com chaves correspondentes a config.COLUNAS
     (chaves ausentes são gravadas como NULL).
     """
-    registro = {c: dados.get(c) for c in COLUNAS}
+    registro = {c: sanitizar_valor(dados.get(c)) for c in COLUNAS}
     colunas_sql = ", ".join(COLUNAS)
     placeholders = ", ".join(f":{c}" for c in COLUNAS)
     execute(
@@ -66,7 +94,7 @@ def atualizar_ativo(patrimonio, dados: dict):
     """
     campos = [c for c in COLUNAS if c != "patrimonio"]
     set_sql = ", ".join(f"{c} = :{c}" for c in campos)
-    params = {c: dados.get(c) for c in campos}
+    params = {c: sanitizar_valor(dados.get(c)) for c in campos}
     params["pat"] = patrimonio
     execute(
         f"UPDATE {TABELA} SET {set_sql} WHERE patrimonio = :pat",

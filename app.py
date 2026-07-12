@@ -1019,27 +1019,14 @@ elif pagina == "Histórico":
 
                     if confirmar_restore and st.button("Restaurar", type="primary"):
                         try:
-                            import pandas as pd
+                            from services.ativos_service import substituir_todos
                             from services.audit_service import registrar_evento
                             from utils.auth import obter_usuario
 
                             if df_preview.empty:
                                 st.error("Nenhum registro encontrado neste snapshot.")
                             else:
-                                execute(f"TRUNCATE TABLE {TABELA}")
-
-                                df_restaurar = df_preview[COLUNAS].where(pd.notnull(df_preview[COLUNAS]), None)
-                                registros = df_restaurar.to_dict("records")
-
-                                colunas_sql = ", ".join(COLUNAS)
-                                placeholders = ", ".join(f":{c}" for c in COLUNAS)
-
-                                with get_connection() as conn:
-                                    with conn.cursor() as cursor:
-                                        cursor.executemany(
-                                            f"INSERT INTO {TABELA} ({colunas_sql}) VALUES ({placeholders})",
-                                            registros,
-                                        )
+                                substituir_todos(df_preview[COLUNAS])
 
                                 registrar_evento(
                                     obter_usuario(),
