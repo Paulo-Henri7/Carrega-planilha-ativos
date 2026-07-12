@@ -446,6 +446,13 @@ elif pagina == "Cadastro em Lote":
             "confira se a combinação Tipo + Modelo faz sentido antes de cadastrar."
         )
 
+        col_titulo, col_reset = st.columns([5, 1])
+        with col_reset:
+            if st.button("🗑️ Limpar tabela"):
+                if "cadastro_lote_editor" in st.session_state:
+                    del st.session_state["cadastro_lote_editor"]
+                st.rerun()
+
         df_editor = st.data_editor(
             pd.DataFrame(columns=COLUNAS),
             num_rows="dynamic",
@@ -531,6 +538,8 @@ elif pagina == "Cadastro em Lote":
                         st.text(f"• {erro}")
                 if cadastrados:
                     st.success(f"✅ {cadastrados} ativo(s) cadastrado(s) com sucesso!")
+                    if "cadastro_lote_editor" in st.session_state:
+                        del st.session_state["cadastro_lote_editor"]
                     st.rerun()
 
     except Exception as e:
