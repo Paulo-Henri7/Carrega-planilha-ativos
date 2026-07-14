@@ -452,11 +452,14 @@ elif pagina == "Cadastro em Lote":
         # ========== PASSO 2: Adicionar modelos filtrados ==========
         st.markdown("#### 📌 Passo 2: Adicione Ativos para este Tipo")
         
-        _modelos_filtrados = modelos_por_tipo(tipo_selecionado) if tipo_selecionado else []
+        _modelos_filtrados_lista = modelos_por_tipo(tipo_selecionado) if tipo_selecionado else []
         
-        if not _modelos_filtrados:
+        if not _modelos_filtrados_lista:
             st.warning(f"Nenhum modelo cadastrado no catálogo para o tipo '{tipo_selecionado}'.")
             st.stop()
+
+        # Converter para dict para compatibilidade com SelectboxColumn
+        _modelos_filtrados_dict = {m: m for m in _modelos_filtrados_lista}
 
         # Colunas que aparecem no editor, excluindo "tipo" (já foi escolhido no passo 1)
         colunas_editor = [c for c in COLUNAS if c != "tipo"]
@@ -487,7 +490,7 @@ elif pagina == "Cadastro em Lote":
                 "unidade": st.column_config.TextColumn(ROTULOS["unidade"]),
                 "cargo": st.column_config.TextColumn(ROTULOS["cargo"]),
                 "gestor": st.column_config.TextColumn(ROTULOS["gestor"]),
-                "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_filtrados, required=True),
+                "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_filtrados_dict, required=True),
                 "status": st.column_config.TextColumn(ROTULOS["status"]),
                 "cc": st.column_config.TextColumn(ROTULOS["cc"]),
                 "num_pedido": st.column_config.TextColumn(ROTULOS["num_pedido"]),
