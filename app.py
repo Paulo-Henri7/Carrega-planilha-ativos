@@ -468,7 +468,7 @@ elif pagina == "Cadastro em Lote":
             st.session_state.cadastro_lote_counter = 0
 
         _tipos = tipos_disponiveis()
-        campos_editaveis = [c for c in COLUNAS if c != "patrimonio"]
+        campos_editaveis = [c for c in COLUNAS]  # Inclui patrimonio também
 
         # Botão para adicionar novo card
         col1, col2 = st.columns([5, 1])
