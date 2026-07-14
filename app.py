@@ -439,12 +439,27 @@ elif pagina == "Cadastro em Lote":
         from config import COLUNAS, COLUNAS_OBRIGATORIAS, ROTULOS
 
         _tipos = tipos_disponiveis()
-        _modelos_todos = sorted({m for t in _tipos for m in modelos_por_tipo(t)})
 
-        st.caption(
-            "⚠️ O Modelo aqui não é filtrado automaticamente pelo Tipo selecionado na linha — "
-            "confira se a combinação Tipo + Modelo faz sentido antes de cadastrar."
+        # ========== PASSO 1: Escolher o Tipo ==========
+        st.markdown("#### 📌 Passo 1: Selecione o Tipo de Equipamento")
+        tipo_selecionado = st.selectbox(
+            "Tipo",
+            _tipos,
+            key="cadastro_lote_tipo",
+            help="Apenas este tipo será permitido nas linhas abaixo"
         )
+
+        # ========== PASSO 2: Adicionar modelos filtrados ==========
+        st.markdown("#### 📌 Passo 2: Adicione Ativos para este Tipo")
+        
+        _modelos_filtrados = modelos_por_tipo(tipo_selecionado) if tipo_selecionado else []
+        
+        if not _modelos_filtrados:
+            st.warning(f"Nenhum modelo cadastrado no catálogo para o tipo '{tipo_selecionado}'.")
+            st.stop()
+
+        # Colunas que aparecem no editor, excluindo "tipo" (já foi escolhido no passo 1)
+        colunas_editor = [c for c in COLUNAS if c != "tipo"]
 
         col_titulo, col_reset = st.columns([5, 1])
         with col_reset:
@@ -453,8 +468,14 @@ elif pagina == "Cadastro em Lote":
                     del st.session_state["cadastro_lote_editor"]
                 st.rerun()
 
+        # Inicializar DataFrame com a coluna "tipo" sempre preenchida
+        if "cadastro_lote_editor" not in st.session_state:
+            df_inicial = pd.DataFrame(columns=colunas_editor)
+        else:
+            df_inicial = st.session_state.get("cadastro_lote_editor", pd.DataFrame(columns=colunas_editor))
+
         df_editor = st.data_editor(
-            pd.DataFrame(columns=COLUNAS),
+            df_inicial,
             num_rows="dynamic",
             use_container_width=True,
             key="cadastro_lote_editor",
@@ -466,8 +487,7 @@ elif pagina == "Cadastro em Lote":
                 "unidade": st.column_config.TextColumn(ROTULOS["unidade"]),
                 "cargo": st.column_config.TextColumn(ROTULOS["cargo"]),
                 "gestor": st.column_config.TextColumn(ROTULOS["gestor"]),
-                "tipo": st.column_config.SelectboxColumn(ROTULOS["tipo"], options=_tipos),
-                "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_todos),
+                "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_filtrados, required=True),
                 "status": st.column_config.TextColumn(ROTULOS["status"]),
                 "cc": st.column_config.TextColumn(ROTULOS["cc"]),
                 "num_pedido": st.column_config.TextColumn(ROTULOS["num_pedido"]),
@@ -491,6 +511,8 @@ elif pagina == "Cadastro em Lote":
 
                 for idx, row in linhas_preenchidas.iterrows():
                     dados = row.to_dict()
+                    # Adicionar o tipo selecionado em cada linha
+                    dados["tipo"] = tipo_selecionado
                     patrimonio = str(dados.get("patrimonio") or "").strip()
 
                     faltando = [ROTULOS.get(c, c) for c in COLUNAS_OBRIGATORIAS if not dados.get(c)]
@@ -512,7 +534,7 @@ elif pagina == "Cadastro em Lote":
                             obter_usuario(),
                             "CADASTRO_LOTE",
                             patrimonio,
-                            f"Modelo={dados.get('modelo')}, Unidade={dados.get('unidade')}",
+                            f"Tipo={tipo_selecionado}, Modelo={dados.get('modelo')}, Unidade={dados.get('unidade')}",
                         )
                         logger.info(
                             "Ativo cadastrado com sucesso (cadastro em lote)",
