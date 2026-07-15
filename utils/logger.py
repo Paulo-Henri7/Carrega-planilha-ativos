@@ -64,7 +64,7 @@ def configure_logging():
                 structlog.processors.StackInfoRenderer(),
                 structlog.processors.format_exc_info,
                 structlog.processors.UnicodeDecoder(),
-                structlog.processors.JSONRenderer(serializer=_json_serializer),
+                structlog.processors.JSONRenderer(default=_json_serializer),
             ],
             context_class=dict,
             logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
