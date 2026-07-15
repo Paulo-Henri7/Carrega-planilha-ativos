@@ -89,8 +89,7 @@ def configure_logging():
 
 
 def _json_serializer(obj):
-    """Serializer customizado para objetos não-JSON."""
-    import json
+    """Serializer customizado para objetos não-JSON — chamado por json.dumps()."""
     from datetime import datetime, date
     from decimal import Decimal
     
@@ -101,7 +100,11 @@ def _json_serializer(obj):
     if hasattr(obj, "__dict__"):
         return str(obj)
     
-    return repr(obj)
+    # Fallback para objetos desconhecidos
+    try:
+        return repr(obj)
+    except Exception:
+        return "<não-serializável>"
 
 
 def get_logger(name: str):
