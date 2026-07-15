@@ -4,3 +4,4 @@ databricks-sdk
 databricks-sql-connector
 openpyxl
 plotly
+structlog

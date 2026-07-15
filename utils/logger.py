@@ -1,94 +1,151 @@
 """
-utils/logger.py
+utils/logger.py — Logging estruturado com structlog
 
-Logging JSON estruturado para o projeto.
-Separado do audit_service: aqui vivem logs técnicos/operacionais
-(erros, performance, falhas de conexão), não eventos de negócio.
+Em desenvolvimento: Logs legíveis no console
+Em produção (Databricks): Logs em JSON estruturado (searchable)
 
-Em Databricks Apps, stdout/stderr são capturados automaticamente
-pelo painel de logs — por isso o formato JSON em uma linha por evento,
-fácil de filtrar e parsear depois.
+Uso:
+    logger = get_logger(__name__)
+    logger.info("operacao_realizada", usuario="joao@empresa.com", patrimonio="PT001")
+    logger.error("erro_na_operacao", usuario=usuario, exc_info=True)
 """
 
-import json
-import logging
 import os
-import socket
 import sys
-import time
-import traceback
-from contextlib import contextmanager
-from datetime import datetime, timezone
+import structlog
+from contextvars import ContextVar
 
-_HOSTNAME = socket.gethostname()
-
-
-class JSONFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-            # --- campos técnicos, vêm de graça do LogRecord ---
-            "modulo": record.module,
-            "funcao": record.funcName,
-            "linha": record.lineno,
-            "processo_id": record.process,
-            "thread": record.threadName,
-            "hostname": _HOSTNAME,
-        }
-
-        # Campos de contexto de negócio passados via extra={...}
-        for campo in ("usuario", "pagina", "acao", "patrimonio", "duracao_ms"):
-            valor = getattr(record, campo, None)
-            if valor is not None:
-                payload[campo] = valor
-
-        if record.exc_info:
-            tipo, valor, tb = record.exc_info
-            payload["exception"] = {
-                "type": tipo.__name__ if tipo else None,
-                "message": str(valor),
-                "traceback": traceback.format_exception(tipo, valor, tb),
-            }
-
-        return json.dumps(payload, ensure_ascii=False)
+# Context vars para rastreamento distribuído (opcional)
+_request_id: ContextVar[str] = ContextVar("request_id", default=None)
+_usuario_atual: ContextVar[str] = ContextVar("usuario_atual", default=None)
 
 
-def get_logger(name: str) -> logging.Logger:
+def set_user_context(usuario: str):
+    """Define o usuário no contexto para todos os logs seguintes."""
+    _usuario_atual.set(usuario)
+
+
+def set_request_id(request_id: str):
+    """Define um ID de request para rastreamento distribuído."""
+    _request_id.set(request_id)
+
+
+def _add_context(logger, method_name, event_dict):
+    """Adiciona contexto automaticamente a cada log."""
+    # Adicionar variáveis de contexto se disponíveis
+    usuario = _usuario_atual.get()
+    if usuario:
+        event_dict.setdefault("usuario", usuario)
+    
+    request_id = _request_id.get()
+    if request_id:
+        event_dict.setdefault("request_id", request_id)
+    
+    return event_dict
+
+
+def configure_logging():
     """
-    Retorna um logger configurado para emitir JSON no stdout.
-    Nível controlável via variável de ambiente LOG_LEVEL (default INFO).
+    Configura structlog baseado no ambiente.
+    
+    Desenvolvimento: Logs coloridos e legíveis no console
+    Produção: JSON estruturado para parseabilidade
     """
-    logger = logging.getLogger(name)
-
-    if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(JSONFormatter())
-        logger.addHandler(handler)
-        logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
-        logger.propagate = False
-
-    return logger
-
-
-@contextmanager
-def log_duracao(logger: logging.Logger, mensagem: str, **contexto):
-    """
-    Context manager para medir e logar a duração de uma operação.
-
-    Uso:
-        with log_duracao(logger, "Query de ativos", usuario=usuario, acao="CARREGAR_ATIVOS"):
-            df = query_df(...)
-    """
-    inicio = time.perf_counter()
-    try:
-        yield
-    except Exception:
-        duracao_ms = round((time.perf_counter() - inicio) * 1000, 1)
-        logger.error(mensagem, extra={**contexto, "duracao_ms": duracao_ms}, exc_info=True)
-        raise
+    is_dev = os.environ.get("LOG_LEVEL", "INFO").upper() == "DEBUG"
+    is_json_mode = os.environ.get("LOG_FORMAT", "").lower() == "json" or not is_dev
+    
+    if is_json_mode:
+        # Produção: JSON estruturado
+        structlog.configure(
+            processors=[
+                _add_context,  # Adiciona usuário/request_id
+                structlog.processors.TimeStamper(fmt="iso"),
+                structlog.processors.add_log_level,
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.format_exc_info,
+                structlog.processors.UnicodeDecoder(),
+                structlog.processors.JSONRenderer(serializer=_json_serializer),
+            ],
+            context_class=dict,
+            logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+            cache_logger_on_first_use=True,
+        )
     else:
-        duracao_ms = round((time.perf_counter() - inicio) * 1000, 1)
-        logger.info(mensagem, extra={**contexto, "duracao_ms": duracao_ms})
+        # Desenvolvimento: Legível e colorido
+        structlog.configure(
+            processors=[
+                _add_context,  # Adiciona usuário/request_id
+                structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+                structlog.processors.add_log_level,
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.format_exc_info,
+                structlog.processors.UnicodeDecoder(),
+                structlog.dev.ConsoleRenderer(colors=True),
+            ],
+            context_class=dict,
+            logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
+            cache_logger_on_first_use=True,
+        )
+
+
+def _json_serializer(obj):
+    """Serializer customizado para objetos não-JSON."""
+    import json
+    from datetime import datetime, date
+    from decimal import Decimal
+    
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if hasattr(obj, "__dict__"):
+        return str(obj)
+    
+    return repr(obj)
+
+
+def get_logger(name: str):
+    """Retorna um logger estruturado do structlog."""
+    return structlog.get_logger(name)
+
+
+# Configurar na importação
+configure_logging()
+
+
+# ============================================================
+# Helpers para compatibilidade com código existente (opcional)
+# ============================================================
+
+class BoundLogger:
+    """Wrapper simples para usar structlog como context manager."""
+    
+    def __init__(self, logger, context: dict = None):
+        self._logger = logger
+        self._context = context or {}
+    
+    def bind(self, **kw):
+        """Vincula contexto (retorna nova instância)."""
+        return BoundLogger(self._logger.bind(**kw), {**self._context, **kw})
+    
+    def info(self, msg: str, **kw):
+        """Log INFO."""
+        self._logger.info(msg, **{**self._context, **kw})
+    
+    def error(self, msg: str, **kw):
+        """Log ERROR."""
+        self._logger.error(msg, **{**self._context, **kw})
+    
+    def warning(self, msg: str, **kw):
+        """Log WARNING."""
+        self._logger.warning(msg, **{**self._context, **kw})
+    
+    def debug(self, msg: str, **kw):
+        """Log DEBUG."""
+        self._logger.debug(msg, **{**self._context, **kw})
+
+
+def get_bound_logger(name: str, **context):
+    """Retorna um logger com contexto pré-vinculado."""
+    logger = structlog.get_logger(name)
+    return BoundLogger(logger, context)
