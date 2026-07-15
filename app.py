@@ -273,26 +273,37 @@ elif pagina == "Manutenção":
 
         if campos_selecionados and st.button("Salvar Alterações"):
             diffs = []
+            alteracoes = []  # (campo, valor_anterior, valor_novo)
             for campo, novo_valor in dados_novos.items():
                 if campo not in campos_selecionados:
                     continue
                 antigo_valor = ativo.get(campo)
                 if _txt(antigo_valor) != _txt(novo_valor):
                     diffs.append(f"{ROTULOS.get(campo, campo)}: {_txt(antigo_valor)} --> {_txt(novo_valor)}")
-            detalhes = " | ".join(diffs) if diffs else "Nenhum campo alterado"
+                    alteracoes.append((campo, _txt(antigo_valor), _txt(novo_valor)))
+            detalhes_resumo = " | ".join(diffs) if diffs else "Nenhum campo alterado"
 
             atualizar_ativo(patrimonio, dados_novos)
-            registrar_evento(
-                usuario=obter_usuario(),
-                acao="EDICAO",
-                patrimonio=patrimonio,
-                detalhes=detalhes,  # Mantém o histórico textual de múltiplas alterações
-            )
+            
+            # Registrar cada alteração de campo separadamente (auditoria estruturada)
+            for campo, valor_anterior, valor_novo in alteracoes:
+                registrar_evento(
+                    usuario=obter_usuario(),
+                    acao="EDICAO",
+                    patrimonio=patrimonio,
+                    campo_alterado=campo,
+                    valor_anterior=valor_anterior,
+                    valor_novo=valor_novo,
+                )
+            
             backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
             logger.info(
                 "Ativo atualizado com sucesso",
-                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO", "patrimonio": patrimonio},
+                usuario=_usuario_atual,
+                pagina=pagina,
+                acao="EDICAO",
+                patrimonio=patrimonio,
             )
             msg = "Alterações salvas com sucesso!"
             if backup_gerado:
@@ -309,13 +320,19 @@ elif pagina == "Manutenção":
                 usuario=obter_usuario(),
                 acao="EXCLUSAO",
                 patrimonio=patrimonio,
-                detalhes=f"Modelo={ativo['modelo']}, Responsavel={ativo['responsavel']}",
+                campo_alterado="status",
+                valor_anterior=str(ativo.get("status", "ativo")),
+                valor_novo="deletado",
+                motivo="Ativo removido do sistema",
             )
             backup_gerado = gerar_backup_se_necessario("EXCLUSAO")
             limpar_cache()
             logger.info(
                 "Ativo excluído com sucesso",
-                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EXCLUSAO", "patrimonio": patrimonio},
+                usuario=_usuario_atual,
+                pagina=pagina,
+                acao="EXCLUSAO",
+                patrimonio=patrimonio,
             )
             msg = "Ativo removido com sucesso!"
             if backup_gerado:
@@ -430,8 +447,8 @@ elif pagina == "Cadastro em Lote":
 
     st.subheader("📥 Cadastro em Lote")
     st.caption(
-        "Adicione um ou mais ativos usando cards individuais. "
-        "Cada card é independente — quando muda o Tipo, o Modelo recarrega automaticamente."
+        "Adicione várias linhas na tabela abaixo (clique no `+` no final) e cadastre todas de uma vez. "
+        "Isso ADICIONA novos ativos — diferente do Upload, não substitui a base atual."
     )
 
     try:
@@ -442,203 +459,111 @@ elif pagina == "Cadastro em Lote":
         from services.catalogo_service import tipos_disponiveis, modelos_por_tipo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
-        from config import COLUNAS, COLUNAS_OBRIGATORIAS, COLUNAS_DATA, ROTULOS
-
-        def _txt(valor):
-            if valor is None or (isinstance(valor, float) and pd.isna(valor)):
-                return ""
-            s = str(valor)
-            return "" if s.lower() == "nan" else s
-
-        def _data(valor):
-            if valor is None or (isinstance(valor, float) and pd.isna(valor)):
-                return None
-            try:
-                d = pd.to_datetime(valor)
-                return None if pd.isna(d) else d.date()
-            except Exception:
-                return None
-
-        def _tem_valor(campo, valor):
-            """Verifica se um campo tem valor significativo."""
-            if campo in ("tipo", "modelo"):
-                return bool(valor)
-            if campo in COLUNAS_DATA:
-                return valor is not None
-            return bool(valor and str(valor).strip())
-
-        # Inicializar session_state para armazenar cards
-        if "cadastro_lote_cards" not in st.session_state:
-            st.session_state.cadastro_lote_cards = {}
-        if "cadastro_lote_counter" not in st.session_state:
-            st.session_state.cadastro_lote_counter = 0
+        from config import COLUNAS, COLUNAS_OBRIGATORIAS, ROTULOS
 
         _tipos = tipos_disponiveis()
-        campos_editaveis = [c for c in COLUNAS]  # Inclui patrimonio também
+        _modelos_todos = sorted({m for t in _tipos for m in modelos_por_tipo(t)})
 
-        # Botão para adicionar novo card
-        col1, col2 = st.columns([5, 1])
-        with col2:
-            if st.button("➕ Novo Ativo", use_container_width=True):
-                st.session_state.cadastro_lote_counter += 1
-                card_id = st.session_state.cadastro_lote_counter
-                st.session_state.cadastro_lote_cards[card_id] = {}
+        st.caption(
+            "⚠️ O Modelo aqui não é filtrado automaticamente pelo Tipo selecionado na linha — "
+            "confira se a combinação Tipo + Modelo faz sentido antes de cadastrar."
+        )
+
+        col_titulo, col_reset = st.columns([5, 1])
+        with col_reset:
+            if st.button("🗑️ Limpar tabela"):
+                if "cadastro_lote_editor" in st.session_state:
+                    del st.session_state["cadastro_lote_editor"]
                 st.rerun()
 
-        # Botão para limpar todos
-        if st.session_state.cadastro_lote_cards:
-            if st.button("🗑️ Limpar todos os ativos"):
-                st.session_state.cadastro_lote_cards = {}
-                st.session_state.cadastro_lote_counter = 0
-                st.rerun()
+        df_editor = st.data_editor(
+            pd.DataFrame(columns=COLUNAS),
+            num_rows="dynamic",
+            use_container_width=True,
+            key="cadastro_lote_editor",
+            column_config={
+                "data_entrega": st.column_config.DateColumn(ROTULOS["data_entrega"]),
+                "patrimonio": st.column_config.TextColumn(ROTULOS["patrimonio"], required=True),
+                "hostname": st.column_config.TextColumn(ROTULOS["hostname"]),
+                "responsavel": st.column_config.TextColumn(ROTULOS["responsavel"]),
+                "unidade": st.column_config.TextColumn(ROTULOS["unidade"]),
+                "cargo": st.column_config.TextColumn(ROTULOS["cargo"]),
+                "gestor": st.column_config.TextColumn(ROTULOS["gestor"]),
+                "tipo": st.column_config.SelectboxColumn(ROTULOS["tipo"], options=_tipos),
+                "modelo": st.column_config.SelectboxColumn(ROTULOS["modelo"], options=_modelos_todos),
+                "status": st.column_config.TextColumn(ROTULOS["status"]),
+                "cc": st.column_config.TextColumn(ROTULOS["cc"]),
+                "num_pedido": st.column_config.TextColumn(ROTULOS["num_pedido"]),
+                "nota_fiscal": st.column_config.TextColumn(ROTULOS["nota_fiscal"]),
+                "dt_compra": st.column_config.DateColumn(ROTULOS["dt_compra"]),
+                "dt_garantia": st.column_config.DateColumn(ROTULOS["dt_garantia"]),
+            },
+        )
 
-        if not st.session_state.cadastro_lote_cards:
-            st.info("Clique em '➕ Novo Ativo' para começar a adicionar ativos.")
+        linhas_preenchidas = df_editor.dropna(how="all")
+
+        if linhas_preenchidas.empty:
+            st.info("Adicione linhas na tabela acima (clique no `+` no final) para começar.")
         else:
-            st.divider()
-            st.markdown(f"**{len(st.session_state.cadastro_lote_cards)} ativo(s) para cadastrar**")
-            st.caption("Preencha os campos obrigatórios (em negrito) e clique em Cadastrar quando terminar.")
-            st.divider()
+            st.caption(f"{len(linhas_preenchidas)} linha(s) preenchida(s).")
 
-            # Um card por ativo novo
-            for card_id in sorted(st.session_state.cadastro_lote_cards.keys()):
-                card_data = st.session_state.cadastro_lote_cards[card_id]
+            if st.button(f"Cadastrar {len(linhas_preenchidas)} ativo(s)", type="primary"):
+                erros = []
+                cadastrados = 0
+                patrimonios_no_lote = set()
 
-                with st.container(border=True):
-                    col_titulo, col_remover = st.columns([5, 1])
-                    
-                    with col_titulo:
-                        titulo = card_data.get("patrimonio", "Novo Ativo")
-                        st.markdown(f"**{titulo}**")
-                    
-                    with col_remover:
-                        if st.button("🗑️", key=f"remove_{card_id}", use_container_width=True):
-                            del st.session_state.cadastro_lote_cards[card_id]
-                            st.rerun()
+                for idx, row in linhas_preenchidas.iterrows():
+                    dados = row.to_dict()
+                    patrimonio = str(dados.get("patrimonio") or "").strip()
 
-                    # Renderizar campos no card
-                    for campo in campos_editaveis:
-                        rotulo = ROTULOS[campo]
-                        obrigatorio = " **" if campo in COLUNAS_OBRIGATORIAS else " "
-                        label_display = f"{obrigatorio}{rotulo}"
+                    faltando = [ROTULOS.get(c, c) for c in COLUNAS_OBRIGATORIAS if not dados.get(c)]
+                    if faltando:
+                        erros.append(f"Linha {idx + 1}: campos obrigatórios ausentes ({', '.join(faltando)})")
+                        continue
 
-                        if campo == "tipo":
-                            card_data[campo] = st.selectbox(
-                                label_display,
-                                _tipos,
-                                key=f"tipo_{card_id}",
-                                index=_tipos.index(card_data.get("tipo")) if card_data.get("tipo") in _tipos else 0
-                            )
+                    if patrimonio in patrimonios_no_lote:
+                        erros.append(f"Linha {idx + 1}: patrimônio '{patrimonio}' duplicado dentro do próprio lote")
+                        continue
 
-                        elif campo == "modelo":
-                            tipo_escolhido = card_data.get("tipo")
-                            if tipo_escolhido:
-                                opcoes_modelo = modelos_por_tipo(tipo_escolhido)
-                            else:
-                                opcoes_modelo = []
+                    if patrimonio_existe(patrimonio):
+                        erros.append(f"Linha {idx + 1}: patrimônio '{patrimonio}' já existe na base")
+                        continue
 
-                            if opcoes_modelo:
-                                index_modelo = opcoes_modelo.index(card_data.get("modelo")) if card_data.get("modelo") in opcoes_modelo else 0
-                                card_data[campo] = st.selectbox(
-                                    label_display,
-                                    opcoes_modelo,
-                                    key=f"modelo_{card_id}",
-                                    index=index_modelo
-                                )
-                            else:
-                                st.warning("⚠️ Selecione um Tipo primeiro para ver os modelos disponíveis.")
-                                card_data[campo] = None
+                    try:
+                        inserir_ativo(dados)
+                        registrar_evento(
+                            obter_usuario(),
+                            "CADASTRO_LOTE",
+                            patrimonio,
+                            f"Modelo={dados.get('modelo')}, Unidade={dados.get('unidade')}",
+                        )
+                        logger.info(
+                            "Ativo cadastrado com sucesso (cadastro em lote)",
+                            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE", "patrimonio": patrimonio},
+                        )
+                        patrimonios_no_lote.add(patrimonio)
+                        cadastrados += 1
+                    except Exception as e:
+                        logger.error(
+                            "Erro ao cadastrar ativo no lote",
+                            extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE", "patrimonio": patrimonio},
+                            exc_info=True,
+                        )
+                        erros.append(f"Linha {idx + 1} ({patrimonio}): {e}")
 
-                        elif campo in COLUNAS_DATA:
-                            card_data[campo] = st.date_input(
-                                label_display,
-                                value=_data(card_data.get(campo)),
-                                key=f"{campo}_{card_id}"
-                            )
+                if cadastrados:
+                    gerar_backup_se_necessario("CADASTRO")
+                    limpar_cache()
 
-                        else:
-                            card_data[campo] = st.text_input(
-                                label_display,
-                                value=_txt(card_data.get(campo)),
-                                key=f"{campo}_{card_id}",
-                                placeholder=f"Preencha {rotulo.lower()}"
-                            )
-
-            st.divider()
-
-            # Validação e salvamento
-            tem_preenchimento = any(
-                any(
-                    _tem_valor(c, v) for c, v in card_data.items() if c != "patrimonio"
-                )
-                for card_data in st.session_state.cadastro_lote_cards.values()
-            )
-
-            if not tem_preenchimento:
-                st.info("Preencha ao menos um campo em algum card para habilitar o cadastro.")
-            else:
-                if st.button(f"✅ Cadastrar {len(st.session_state.cadastro_lote_cards)} ativo(s)", type="primary", use_container_width=True):
-                    erros = []
-                    cadastrados = 0
-                    patrimonios_usados = set()
-
-                    for card_id, card_data in st.session_state.cadastro_lote_cards.items():
-                        patrimonio = str(card_data.get("patrimonio") or "").strip()
-
-                        # Validar campos obrigatórios
-                        faltando = [ROTULOS.get(c, c) for c in COLUNAS_OBRIGATORIAS if not card_data.get(c)]
-                        if faltando:
-                            erros.append(f"Card {card_id}: campos obrigatórios ausentes ({', '.join(faltando)})")
-                            continue
-
-                        # Validar patrimônio único
-                        if not patrimonio:
-                            erros.append(f"Card {card_id}: Patrimônio obrigatório")
-                            continue
-
-                        if patrimonio in patrimonios_usados:
-                            erros.append(f"Card {card_id}: patrimônio '{patrimonio}' duplicado dentro do lote")
-                            continue
-
-                        if patrimonio_existe(patrimonio):
-                            erros.append(f"Card {card_id}: patrimônio '{patrimonio}' já existe na base")
-                            continue
-
-                        try:
-                            inserir_ativo(card_data)
-                            registrar_evento(
-                                usuario=obter_usuario(),
-                                acao="CADASTRO_LOTE",
-                                patrimonio=patrimonio,
-                                detalhes=f"Tipo={card_data.get('tipo')}, Modelo={card_data.get('modelo')}, Unidade={card_data.get('unidade')}",
-                            )
-                            logger.info(
-                                "Ativo cadastrado com sucesso (cadastro em lote)",
-                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE", "patrimonio": patrimonio},
-                            )
-                            patrimonios_usados.add(patrimonio)
-                            cadastrados += 1
-                        except Exception as e:
-                            logger.error(
-                                "Erro ao cadastrar ativo no lote",
-                                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "CADASTRO_LOTE", "patrimonio": patrimonio},
-                                exc_info=True,
-                            )
-                            erros.append(f"Card {card_id} ({patrimonio}): {e}")
-
-                    if cadastrados:
-                        gerar_backup_se_necessario("CADASTRO")
-                        limpar_cache()
-
-                    if erros:
-                        st.warning(f"Concluído com {len(erros)} erro(s):")
-                        for erro in erros:
-                            st.text(f"• {erro}")
-                    if cadastrados:
-                        st.success(f"✅ {cadastrados} ativo(s) cadastrado(s) com sucesso!")
-                        st.session_state.cadastro_lote_cards = {}
-                        st.session_state.cadastro_lote_counter = 0
-                        st.rerun()
+                if erros:
+                    st.warning(f"Concluído com {len(erros)} erro(s):")
+                    for erro in erros:
+                        st.text(f"• {erro}")
+                if cadastrados:
+                    st.success(f"✅ {cadastrados} ativo(s) cadastrado(s) com sucesso!")
+                    if "cadastro_lote_editor" in st.session_state:
+                        del st.session_state["cadastro_lote_editor"]
+                    st.rerun()
 
     except Exception as e:
         logger.error(
@@ -806,32 +731,46 @@ elif pagina == "Edição em Lote":
                                 ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
                                 dados_atualizados = ativo.to_dict()
                                 diffs = []
+                                alteracoes = []  # (campo, valor_anterior, valor_novo)
 
                                 for campo, valor in vals.items():
                                     if not _tem_valor(campo, valor):
                                         continue
                                     valor_final = valor.strip() if isinstance(valor, str) else valor
                                     dados_atualizados[campo] = valor_final
-                                    diffs.append(f"{ROTULOS[campo]}: {_txt(ativo.get(campo))} --> {_txt(valor_final)}")
+                                    valor_antigo_txt = _txt(ativo.get(campo))
+                                    diffs.append(f"{ROTULOS[campo]}: {valor_antigo_txt} --> {_txt(valor_final)}")
+                                    alteracoes.append((campo, valor_antigo_txt, _txt(valor_final)))
 
                                 atualizar_ativo(pat, dados_atualizados)
 
-                                registrar_evento(
-                                    usuario=obter_usuario(),
-                                    acao="EDICAO_LOTE",
-                                    patrimonio=pat,
-                                    detalhes=" | ".join(diffs),
-                                )
+                                # Registrar cada alteração separadamente
+                                for campo, valor_anterior, valor_novo in alteracoes:
+                                    registrar_evento(
+                                        usuario=obter_usuario(),
+                                        acao="EDICAO_LOTE",
+                                        patrimonio=pat,
+                                        campo_alterado=campo,
+                                        valor_anterior=valor_anterior,
+                                        valor_novo=valor_novo,
+                                    )
+                                
                                 logger.info(
                                     "Ativo atualizado com sucesso (edição em lote)",
-                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
+                                    usuario=_usuario_atual,
+                                    pagina=pagina,
+                                    acao="EDICAO_LOTE",
+                                    patrimonio=pat,
                                 )
                                 salvos += 1
 
                             except Exception as e:
                                 logger.error(
                                     "Erro ao atualizar patrimônio na edição em lote",
-                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
+                                    usuario=_usuario_atual,
+                                    pagina=pagina,
+                                    acao="EDICAO_LOTE",
+                                    patrimonio=pat,
                                     exc_info=True,
                                 )
                                 erros.append(f"{pat}: {e}")
