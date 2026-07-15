@@ -64,10 +64,11 @@ if pagina == "Upload":
 
                     substituir_todos(df)
                     registrar_evento(
-                        obter_usuario(),
-                        "UPLOAD_PLANILHA",
-                        "N/A",
-                        {"arquivo": arquivo.name, "linhas": len(df)},
+                        usuario=obter_usuario(),
+                        acao="UPLOAD_PLANILHA",
+                        patrimonio=None,
+                        quantidade=len(df),
+                        detalhes=f"Arquivo: {arquivo.name}",
                     )
                     backup_gerado = gerar_backup_se_necessario("UPLOAD_PLANILHA")
                     limpar_cache()
@@ -281,7 +282,12 @@ elif pagina == "Manutenção":
             detalhes = " | ".join(diffs) if diffs else "Nenhum campo alterado"
 
             atualizar_ativo(patrimonio, dados_novos)
-            registrar_evento(obter_usuario(), "EDICAO", patrimonio, detalhes)
+            registrar_evento(
+                usuario=obter_usuario(),
+                acao="EDICAO",
+                patrimonio=patrimonio,
+                detalhes=detalhes,  # Mantém o histórico textual de múltiplas alterações
+            )
             backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
             logger.info(
@@ -300,10 +306,10 @@ elif pagina == "Manutenção":
         if confirmar_exclusao and st.button("Excluir Ativo", type="primary"):
             excluir_ativo(patrimonio)
             registrar_evento(
-                obter_usuario(),
-                "EXCLUSAO",
-                patrimonio,
-                f"Modelo={ativo['modelo']}, Responsavel={ativo['responsavel']}",
+                usuario=obter_usuario(),
+                acao="EXCLUSAO",
+                patrimonio=patrimonio,
+                detalhes=f"Modelo={ativo['modelo']}, Responsavel={ativo['responsavel']}",
             )
             backup_gerado = gerar_backup_se_necessario("EXCLUSAO")
             limpar_cache()
@@ -394,10 +400,10 @@ elif pagina == "Novo Ativo":
             else:
                 inserir_ativo(dados)
                 registrar_evento(
-                    obter_usuario(),
-                    "CADASTRO",
-                    novo_patrimonio,
-                    f"Modelo={novo_modelo}, Unidade={nova_unidade}",
+                    usuario=obter_usuario(),
+                    acao="CADASTRO",
+                    patrimonio=novo_patrimonio,
+                    detalhes=f"Modelo={novo_modelo}, Unidade={nova_unidade}",
                 )
                 gerar_backup_se_necessario("CADASTRO")
                 limpar_cache()
@@ -601,10 +607,10 @@ elif pagina == "Cadastro em Lote":
                         try:
                             inserir_ativo(card_data)
                             registrar_evento(
-                                obter_usuario(),
-                                "CADASTRO_LOTE",
-                                patrimonio,
-                                f"Tipo={card_data.get('tipo')}, Modelo={card_data.get('modelo')}, Unidade={card_data.get('unidade')}",
+                                usuario=obter_usuario(),
+                                acao="CADASTRO_LOTE",
+                                patrimonio=patrimonio,
+                                detalhes=f"Tipo={card_data.get('tipo')}, Modelo={card_data.get('modelo')}, Unidade={card_data.get('unidade')}",
                             )
                             logger.info(
                                 "Ativo cadastrado com sucesso (cadastro em lote)",
@@ -811,10 +817,10 @@ elif pagina == "Edição em Lote":
                                 atualizar_ativo(pat, dados_atualizados)
 
                                 registrar_evento(
-                                    obter_usuario(),
-                                    "EDICAO_LOTE",
-                                    pat,
-                                    " | ".join(diffs),
+                                    usuario=obter_usuario(),
+                                    acao="EDICAO_LOTE",
+                                    patrimonio=pat,
+                                    detalhes=" | ".join(diffs),
                                 )
                                 logger.info(
                                     "Ativo atualizado com sucesso (edição em lote)",
@@ -1121,10 +1127,11 @@ elif pagina == "Histórico":
                                 substituir_todos(df_preview[COLUNAS])
 
                                 registrar_evento(
-                                    obter_usuario(),
-                                    "RESTAURACAO_BACKUP",
-                                    "N/A",
-                                    f"Modificação #{mod_selecionada} de {backup_em_selecionado} restaurada ({len(df_preview)} registros)",
+                                    usuario=obter_usuario(),
+                                    acao="RESTAURACAO_BACKUP",
+                                    patrimonio=None,
+                                    quantidade=len(df_preview),
+                                    detalhes=f"Modificação #{mod_selecionada} de {backup_em_selecionado} restaurada",
                                 )
                                 limpar_cache()
                                 st.success(
