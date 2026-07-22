@@ -179,6 +179,7 @@ elif pagina == "Manutenção":
         from services.catalogo_service import tipos_disponiveis, modelos_por_tipo, tipo_do_modelo
         from utils.auth import obter_usuario
         from utils.cache import limpar_cache
+        from utils.session_logs import add_log, LogLevel
         from config import ROTULOS, COLUNAS_DATA, COLUNAS
 
         def _txt(valor):
