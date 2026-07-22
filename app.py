@@ -12,8 +12,10 @@ st.title("📋 Controle de Ativos")
 from utils.auth import obter_usuario
 from utils.backup_auth import tem_acesso_backup
 from utils.logger import get_logger
+from utils.session_logs import add_log, display_logs, LogLevel, init_logs
 
 logger = get_logger(__name__)
+init_logs()  # Inicializar logs da sessão
 
 _usuario_atual = obter_usuario()
 _is_admin = tem_acesso_backup(_usuario_atual)
@@ -23,6 +25,13 @@ if _is_admin:
     _menu = ["Upload"] + _menu + ["Diagnóstico"]
 
 pagina = st.sidebar.selectbox("Menu", _menu)
+
+# =====================
+# LOGS DA SESSÃO
+# =====================
+with st.sidebar:
+    st.divider()
+    display_logs(max_lines=12, show_title=True)
 
 
 # ======================
@@ -64,11 +73,10 @@ if pagina == "Upload":
 
                     substituir_todos(df)
                     registrar_evento(
-                        usuario=obter_usuario(),
-                        acao="UPLOAD_PLANILHA",
-                        patrimonio=None,
-                        quantidade=len(df),
-                        detalhes=f"Arquivo: {arquivo.name}",
+                        obter_usuario(),
+                        "UPLOAD_PLANILHA",
+                        "N/A",
+                        {"arquivo": arquivo.name, "linhas": len(df)},
                     )
                     backup_gerado = gerar_backup_se_necessario("UPLOAD_PLANILHA")
                     limpar_cache()
@@ -273,37 +281,21 @@ elif pagina == "Manutenção":
 
         if campos_selecionados and st.button("Salvar Alterações"):
             diffs = []
-            alteracoes = []  # (campo, valor_anterior, valor_novo)
             for campo, novo_valor in dados_novos.items():
                 if campo not in campos_selecionados:
                     continue
                 antigo_valor = ativo.get(campo)
                 if _txt(antigo_valor) != _txt(novo_valor):
                     diffs.append(f"{ROTULOS.get(campo, campo)}: {_txt(antigo_valor)} --> {_txt(novo_valor)}")
-                    alteracoes.append((campo, _txt(antigo_valor), _txt(novo_valor)))
-            detalhes_resumo = " | ".join(diffs) if diffs else "Nenhum campo alterado"
+            detalhes = " | ".join(diffs) if diffs else "Nenhum campo alterado"
 
             atualizar_ativo(patrimonio, dados_novos)
-            
-            # Registrar cada alteração de campo separadamente (auditoria estruturada)
-            for campo, valor_anterior, valor_novo in alteracoes:
-                registrar_evento(
-                    usuario=obter_usuario(),
-                    acao="EDICAO",
-                    patrimonio=patrimonio,
-                    campo_alterado=campo,
-                    valor_anterior=valor_anterior,
-                    valor_novo=valor_novo,
-                )
-            
+            registrar_evento(obter_usuario(), "EDICAO", patrimonio, detalhes)
             backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
             logger.info(
                 "Ativo atualizado com sucesso",
-                usuario=_usuario_atual,
-                pagina=pagina,
-                acao="EDICAO",
-                patrimonio=patrimonio,
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO", "patrimonio": patrimonio},
             )
             msg = "Alterações salvas com sucesso!"
             if backup_gerado:
@@ -316,23 +308,18 @@ elif pagina == "Manutenção":
         confirmar_exclusao = st.checkbox("Confirmo a exclusão deste ativo")
         if confirmar_exclusao and st.button("Excluir Ativo", type="primary"):
             excluir_ativo(patrimonio)
+            add_log("exclusao", LogLevel.INFO, patrimonio=patrimonio, modelo=ativo.get("modelo"), usuario=_usuario_atual)
             registrar_evento(
-                usuario=obter_usuario(),
-                acao="EXCLUSAO",
-                patrimonio=patrimonio,
-                campo_alterado="status",
-                valor_anterior=str(ativo.get("status", "ativo")),
-                valor_novo="deletado",
-                motivo="Ativo removido do sistema",
+                obter_usuario(),
+                "EXCLUSAO",
+                patrimonio,
+                f"Modelo={ativo['modelo']}, Responsavel={ativo['responsavel']}",
             )
             backup_gerado = gerar_backup_se_necessario("EXCLUSAO")
             limpar_cache()
             logger.info(
                 "Ativo excluído com sucesso",
-                usuario=_usuario_atual,
-                pagina=pagina,
-                acao="EXCLUSAO",
-                patrimonio=patrimonio,
+                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EXCLUSAO", "patrimonio": patrimonio},
             )
             msg = "Ativo removido com sucesso!"
             if backup_gerado:
@@ -417,10 +404,10 @@ elif pagina == "Novo Ativo":
             else:
                 inserir_ativo(dados)
                 registrar_evento(
-                    usuario=obter_usuario(),
-                    acao="CADASTRO",
-                    patrimonio=novo_patrimonio,
-                    detalhes=f"Modelo={novo_modelo}, Unidade={nova_unidade}",
+                    obter_usuario(),
+                    "CADASTRO",
+                    novo_patrimonio,
+                    f"Modelo={novo_modelo}, Unidade={nova_unidade}",
                 )
                 gerar_backup_se_necessario("CADASTRO")
                 limpar_cache()
@@ -731,46 +718,32 @@ elif pagina == "Edição em Lote":
                                 ativo = df[df["patrimonio"].astype(str) == pat].iloc[0]
                                 dados_atualizados = ativo.to_dict()
                                 diffs = []
-                                alteracoes = []  # (campo, valor_anterior, valor_novo)
 
                                 for campo, valor in vals.items():
                                     if not _tem_valor(campo, valor):
                                         continue
                                     valor_final = valor.strip() if isinstance(valor, str) else valor
                                     dados_atualizados[campo] = valor_final
-                                    valor_antigo_txt = _txt(ativo.get(campo))
-                                    diffs.append(f"{ROTULOS[campo]}: {valor_antigo_txt} --> {_txt(valor_final)}")
-                                    alteracoes.append((campo, valor_antigo_txt, _txt(valor_final)))
+                                    diffs.append(f"{ROTULOS[campo]}: {_txt(ativo.get(campo))} --> {_txt(valor_final)}")
 
                                 atualizar_ativo(pat, dados_atualizados)
 
-                                # Registrar cada alteração separadamente
-                                for campo, valor_anterior, valor_novo in alteracoes:
-                                    registrar_evento(
-                                        usuario=obter_usuario(),
-                                        acao="EDICAO_LOTE",
-                                        patrimonio=pat,
-                                        campo_alterado=campo,
-                                        valor_anterior=valor_anterior,
-                                        valor_novo=valor_novo,
-                                    )
-                                
+                                registrar_evento(
+                                    obter_usuario(),
+                                    "EDICAO_LOTE",
+                                    pat,
+                                    " | ".join(diffs),
+                                )
                                 logger.info(
                                     "Ativo atualizado com sucesso (edição em lote)",
-                                    usuario=_usuario_atual,
-                                    pagina=pagina,
-                                    acao="EDICAO_LOTE",
-                                    patrimonio=pat,
+                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
                                 )
                                 salvos += 1
 
                             except Exception as e:
                                 logger.error(
                                     "Erro ao atualizar patrimônio na edição em lote",
-                                    usuario=_usuario_atual,
-                                    pagina=pagina,
-                                    acao="EDICAO_LOTE",
-                                    patrimonio=pat,
+                                    extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO_LOTE", "patrimonio": pat},
                                     exc_info=True,
                                 )
                                 erros.append(f"{pat}: {e}")
@@ -1066,11 +1039,10 @@ elif pagina == "Histórico":
                                 substituir_todos(df_preview[COLUNAS])
 
                                 registrar_evento(
-                                    usuario=obter_usuario(),
-                                    acao="RESTAURACAO_BACKUP",
-                                    patrimonio=None,
-                                    quantidade=len(df_preview),
-                                    detalhes=f"Modificação #{mod_selecionada} de {backup_em_selecionado} restaurada",
+                                    obter_usuario(),
+                                    "RESTAURACAO_BACKUP",
+                                    "N/A",
+                                    f"Modificação #{mod_selecionada} de {backup_em_selecionado} restaurada ({len(df_preview)} registros)",
                                 )
                                 limpar_cache()
                                 st.success(
