@@ -12,10 +12,8 @@ st.title("📋 Controle de Ativos")
 from utils.auth import obter_usuario
 from utils.backup_auth import tem_acesso_backup
 from utils.logger import get_logger
-from utils.session_logs import add_log, display_logs, LogLevel, init_logs
 
 logger = get_logger(__name__)
-init_logs()  # Inicializar logs da sessão
 
 _usuario_atual = obter_usuario()
 _is_admin = tem_acesso_backup(_usuario_atual)
@@ -25,13 +23,6 @@ if _is_admin:
     _menu = ["Upload"] + _menu + ["Diagnóstico"]
 
 pagina = st.sidebar.selectbox("Menu", _menu)
-
-# =====================
-# LOGS DA SESSÃO
-# =====================
-with st.sidebar:
-    st.divider()
-    display_logs(max_lines=12, show_title=True)
 
 
 # ======================
@@ -236,13 +227,13 @@ elif pagina == "Manutenção":
             campos_selecionados.add("tipo")
             campos_selecionados.add("modelo")
 
-        # Ponto de partida: mantém os valores atuais de todos os campos
-        dados_novos = {c: ativo.get(c) for c in campos_editaveis}
-
         if not campos_selecionados:
             st.info("Selecione ao menos um campo acima para habilitar a edição.")
         else:
             st.divider()
+
+            # Dicionário para armazenar os valores NOVOS dos widgets
+            dados_novos = {}
 
             for campo in campos_editaveis:  # respeita a ordem definida em config.COLUNAS
                 if campo not in campos_selecionados:
@@ -256,23 +247,23 @@ elif pagina == "Manutenção":
                     _index_tipo = _tipos.index(_tipo_atual) if _tipo_atual in _tipos else 0
                     if not _tipo_atual:
                         st.caption(f"⚠️ Modelo atual (`{ativo['modelo']}`) não está no catálogo — selecione o tipo manualmente.")
-                    dados_novos["tipo"] = st.selectbox(rotulo, _tipos, index=_index_tipo)
+                    dados_novos["tipo"] = st.selectbox(rotulo, _tipos, index=_index_tipo, key=f"edit_tipo_{patrimonio}")
 
                 elif campo == "modelo":
-                    tipo_para_filtro = dados_novos.get("tipo")
+                    tipo_para_filtro = dados_novos.get("tipo") or _txt(ativo.get("tipo")) or tipo_do_modelo(str(ativo["modelo"]))
                     opcoes_modelo = modelos_por_tipo(tipo_para_filtro)
                     if str(ativo["modelo"]) in opcoes_modelo:
                         _index_modelo = opcoes_modelo.index(str(ativo["modelo"]))
                     else:
                         opcoes_modelo = [str(ativo["modelo"])] + opcoes_modelo
                         _index_modelo = 0
-                    dados_novos["modelo"] = st.selectbox(rotulo, opcoes_modelo, index=_index_modelo) if opcoes_modelo else None
+                    dados_novos["modelo"] = st.selectbox(rotulo, opcoes_modelo, index=_index_modelo, key=f"edit_modelo_{patrimonio}") if opcoes_modelo else None
 
                 elif campo in COLUNAS_DATA:
-                    dados_novos[campo] = st.date_input(rotulo, value=_data(ativo.get(campo)))
+                    dados_novos[campo] = st.date_input(rotulo, value=_data(ativo.get(campo)), key=f"edit_date_{campo}_{patrimonio}")
 
                 else:
-                    dados_novos[campo] = st.text_input(rotulo, value=_txt(ativo.get(campo)))
+                    dados_novos[campo] = st.text_input(rotulo, value=_txt(ativo.get(campo)), key=f"edit_{campo}_{patrimonio}")
 
             campos_nao_selecionados = [c for c in campos_editaveis if c not in campos_selecionados]
             if campos_nao_selecionados:
@@ -280,26 +271,53 @@ elif pagina == "Manutenção":
                     st.table({ROTULOS[c]: _txt(ativo.get(c)) for c in campos_nao_selecionados})
 
         if campos_selecionados and st.button("Salvar Alterações"):
+            # Comparar valores antigos vs novos e registrar apenas os que mudaram
             diffs = []
+            alteracoes = []
+            
             for campo, novo_valor in dados_novos.items():
-                if campo not in campos_selecionados:
-                    continue
                 antigo_valor = ativo.get(campo)
-                if _txt(antigo_valor) != _txt(novo_valor):
-                    diffs.append(f"{ROTULOS.get(campo, campo)}: {_txt(antigo_valor)} --> {_txt(novo_valor)}")
-            detalhes = " | ".join(diffs) if diffs else "Nenhum campo alterado"
+                
+                # Converter para string para comparação
+                antigo_txt = _txt(antigo_valor)
+                novo_txt = _txt(novo_valor)
+                
+                # Se houve mudança, registrar
+                if antigo_txt != novo_txt:
+                    diffs.append(f"{ROTULOS.get(campo, campo)}: {antigo_txt} --> {novo_txt}")
+                    alteracoes.append((campo, antigo_txt, novo_txt))
 
+            if not alteracoes:
+                st.warning("⚠️ Nenhum campo foi alterado!")
+                st.stop()
+
+            # Atualizar o ativo
             atualizar_ativo(patrimonio, dados_novos)
-            registrar_evento(obter_usuario(), "EDICAO", patrimonio, detalhes)
+            
+            # Registrar cada alteração separadamente (auditoria estruturada)
+            for campo, valor_anterior, valor_novo in alteracoes:
+                add_log("edicao", LogLevel.INFO, patrimonio=patrimonio, campo=campo, anterior=valor_anterior, novo=valor_novo, usuario=_usuario_atual)
+                registrar_evento(
+                    usuario=obter_usuario(),
+                    acao="EDICAO",
+                    patrimonio=patrimonio,
+                    campo_alterado=campo,
+                    valor_anterior=valor_anterior,
+                    valor_novo=valor_novo,
+                )
+            
             backup_gerado = gerar_backup_se_necessario("EDICAO")
             limpar_cache()
             logger.info(
                 "Ativo atualizado com sucesso",
-                extra={"usuario": _usuario_atual, "pagina": pagina, "acao": "EDICAO", "patrimonio": patrimonio},
+                usuario=_usuario_atual,
+                pagina=pagina,
+                acao="EDICAO",
+                patrimonio=patrimonio,
             )
-            msg = "Alterações salvas com sucesso!"
+            msg = f"✅ {len(alteracoes)} campo(s) alterado(s) com sucesso!"
             if backup_gerado:
-                msg += "Backup gerado automaticamente."
+                msg += " Backup gerado automaticamente."
             st.success(msg)
             st.rerun()
 
@@ -308,7 +326,6 @@ elif pagina == "Manutenção":
         confirmar_exclusao = st.checkbox("Confirmo a exclusão deste ativo")
         if confirmar_exclusao and st.button("Excluir Ativo", type="primary"):
             excluir_ativo(patrimonio)
-            add_log("exclusao", LogLevel.INFO, patrimonio=patrimonio, modelo=ativo.get("modelo"), usuario=_usuario_atual)
             registrar_evento(
                 obter_usuario(),
                 "EXCLUSAO",
