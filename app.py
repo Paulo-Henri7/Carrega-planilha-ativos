@@ -29,6 +29,7 @@ pagina = st.sidebar.selectbox("Menu", _menu)
 # UPLOAD
 # ======================
 if pagina == "Upload":
+    from utils.session_logs import add_log, LogLevel
 
     st.subheader("Upload de Planilha")
     st.caption(
@@ -69,6 +70,7 @@ if pagina == "Upload":
                         "N/A",
                         {"arquivo": arquivo.name, "linhas": len(df)},
                     )
+                    add_log("upload", LogLevel.INFO, arquivo=arquivo.name, linhas=len(df), usuario=_usuario_atual)
                     backup_gerado = gerar_backup_se_necessario("UPLOAD_PLANILHA")
                     limpar_cache()
 
@@ -358,6 +360,7 @@ elif pagina == "Manutenção":
 # NOVO ATIVO
 # ======================
 elif pagina == "Novo Ativo":
+    from utils.session_logs import add_log, LogLevel
 
     st.subheader("Cadastro de Novo Ativo")
 
@@ -421,6 +424,7 @@ elif pagina == "Novo Ativo":
                 st.error("Já existe um ativo com este patrimônio.")
             else:
                 inserir_ativo(dados)
+                add_log("novo-ativo", LogLevel.INFO, patrimonio=novo_patrimonio, modelo=novo_modelo, unidade=nova_unidade, usuario=_usuario_atual)
                 registrar_evento(
                     obter_usuario(),
                     "CADASTRO",
@@ -449,6 +453,7 @@ elif pagina == "Novo Ativo":
 # CADASTRO EM LOTE
 # ======================
 elif pagina == "Cadastro em Lote":
+    from utils.session_logs import add_log, LogLevel
 
     st.subheader("📥 Cadastro em Lote")
     st.caption(
@@ -536,6 +541,7 @@ elif pagina == "Cadastro em Lote":
 
                     try:
                         inserir_ativo(dados)
+                        add_log("cadastro-lote", LogLevel.INFO, patrimonio=patrimonio, modelo=dados.get("modelo"), usuario=_usuario_atual)
                         registrar_evento(
                             obter_usuario(),
                             "CADASTRO_LOTE",
@@ -583,6 +589,7 @@ elif pagina == "Cadastro em Lote":
 # EDIÇÃO EM LOTE
 # ======================
 elif pagina == "Edição em Lote":
+    from utils.session_logs import add_log, LogLevel
 
     st.subheader("✏️ Edição em Lote")
     st.caption("Selecione os patrimônios, escolha quais campos deseja poder alterar, e preencha apenas o que for necessário em cada card.")
@@ -745,7 +752,7 @@ elif pagina == "Edição em Lote":
                                     diffs.append(f"{ROTULOS[campo]}: {_txt(ativo.get(campo))} --> {_txt(valor_final)}")
 
                                 atualizar_ativo(pat, dados_atualizados)
-
+                                add_log("edicao-lote", LogLevel.INFO, patrimonio=pat, usuario=_usuario_atual)
                                 registrar_evento(
                                     obter_usuario(),
                                     "EDICAO_LOTE",
